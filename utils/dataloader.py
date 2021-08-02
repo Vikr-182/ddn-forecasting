@@ -54,9 +54,6 @@ class TrajectoryDataset(Dataset):
         y_traj = data[idx][:, 1]
         y_traj -= y_traj[0] + 2
         
-        if idx == 0:
-            plt.plot(x_traj, y_traj)
-        
         x_inp = x_traj[:self.t_obs]
         y_inp = y_traj[:self.t_obs]
         x_fut = x_traj[self.t_obs:]
