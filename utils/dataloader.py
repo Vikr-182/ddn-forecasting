@@ -87,5 +87,151 @@ class TrajectoryDataset(Dataset):
         
         return torch.tensor(traj_inp), torch.tensor(traj_out), torch.tensor(b_inp)
     
+def denoise(gt_x, gt_y, w = 7):
+    # denoising
+    w = w
+    gt_x_t = []
+    gt_y_t = []
+    for iq in range(len(gt_x)):
+        if iq >= w and iq + w <= len(gt_x):
+            gt_x_t.append(np.average(gt_x[iq: iq + w]))
+            gt_y_t.append(np.average(gt_y[iq: iq + w]))
+        elif iq < w:
+            okx = np.average(gt_x[w: w + w])
+            gt_x_t.append(gt_x[0] + (okx - gt_x[0]) * (iq) / w)
+            oky = np.average(gt_y[w: w + w])
+            gt_y_t.append(gt_y[0] + (oky - gt_y[0]) * (iq) / w)
+        else:
+            okx = np.average(gt_x[len(gt_x) - w:len(gt_x) - w  + w])
+            oky = np.average(gt_y[len(gt_x) - w: len(gt_x) - w + w])
+            gt_x_t.append(okx + (gt_x[-1] - okx) * (w - (len(gt_x) - iq)) / w)
+            gt_y_t.append(oky + (gt_y[-1] - oky) * (w - (len(gt_y) - iq)) / w)                   
+
+    gt_x = gt_x_t
+    gt_y = gt_y_t
+    return gt_x, gt_y
+
+def rotate(gt_x, gt_y,theta):
+    gt_x_x = [ (gt_x[k] * np.cos(theta) - gt_y[k] * np.sin(theta))  for k in range(len(gt_x))]
+    gt_y_y = [ (gt_x[k] * np.sin(theta) + gt_y[k] * np.cos(theta))  for k in range(len(gt_x))]
+    gt_x = gt_x_x
+    gt_y = gt_y_y
+    return gt_x, gt_y
+
+class ArgoverseDataset(Dataset):
+    def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False):
+        self.data = np.load(data_path)
+        self.data_path = data_path
+        self.t_obs = t_obs
+        self.dt = dt
+        self.include_centerline = include_centerline
+        self.centerline_dir = centerline_dir
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        dt = self.dt
+        traj = self.data[idx]
+        x_traj = traj[:, 0]
+        y_traj = traj[:, 1]
+        
+        x_traj -= x_traj[0]
+        y_traj -= y_traj[0]
+        
+        gt_x = x_traj
+        gt_y = y_traj
+                
+        gt_x, gt_y = denoise(gt_x, gt_y)
+        v_x = [ (gt_x[k + 1] - gt_x[k])/dt  for k in range(len(gt_x) - 1)]
+        v_y = [ (gt_y[k + 1] - gt_y[k])/dt  for k in range(len(gt_y) - 1)]
+        psi = [ np.arctan2(v_y[k], v_x[k]) for k in range(len(v_x))]  
+        
+        # till here, gt-> (50, 1), v -> (49, 1), psi -> (31, 1)
+        
+        # obtain this -psi
+        theta = -psi[self.t_obs - 1]
+        
+        # rotate by theta
+        gt_x, gt_y = rotate(gt_x, gt_y, theta)
+        v_x = [ (gt_x[k + 1] - gt_x[k])/dt  for k in range(len(gt_x) - 1)]
+        v_y = [ (gt_y[k + 1] - gt_y[k])/dt  for k in range(len(gt_y) - 1)]
+        psi = [ np.arctan2(v_y[k], v_x[k]) for k in range(len(v_x))]
+        psidot = [ (psi[k + 1] - psi[k])/dt for k in range(len(psi) - 1) ]
+        psi_traj = [i.item() for i in psi]
+        psidot_traj = [i.item() for i in psidot]
+        
+        x_traj = gt_x
+        y_traj = gt_y
+
+        x_inp = x_traj[:self.t_obs]
+        y_inp = y_traj[:self.t_obs]
+        x_fut = x_traj[self.t_obs:]
+        y_fut = y_traj[self.t_obs:]
+
+        # till here, gt-> (32, 1), v -> (31, 1), psi -> (31, 1), psidot -> (30, 1)
+        psi_fut = psi_traj[self.t_obs - 1:]
+        psidot_fut = psi_traj[self.t_obs - 2:]
+        
+        vx_traj = v_x
+        vy_traj = v_y
+        
+        vx_beg = vx_traj[self.t_obs]
+        vy_beg = vy_traj[self.t_obs]
+        
+        vx_beg_prev = vx_traj[self.t_obs - 1]
+        vy_beg_prev = vy_traj[self.t_obs - 1]
+        
+        ax_beg = (vx_beg - vx_beg_prev) / self.dt
+        ay_beg = (vy_beg - vy_beg_prev) / self.dt
+
+        vx_fin = v_x[-1]
+        vy_fin = v_y[-1]
+        
+        vx_fin_prev = v_x[-2]
+        vy_fin_prev = v_y[-2]
+
+        ax_fin = (vx_fin - vx_fin_prev) / self.dt
+        ay_fin = (vy_fin - vy_fin_prev) / self.dt
+
+        x_fut = x_traj[self.t_obs:]
+        y_fut = y_traj[self.t_obs:]
+        
+#         traj_inp = np.dstack((x_inp, y_inp)).flatten()  
+        traj_inp = np.vstack((x_inp, y_inp))
+        traj_inp = np.swapaxes(traj_inp, 0, 1)
+        
+        if self.include_centerline:
+            cs = np.load(self.centerline_dir)[idx]
+            data = np.load(self.data_path)
+
+            c_x = cs[:, 0]            
+            c_y = cs[:, 1]
+            c_x -= data[idx][0,0]
+            c_y -= data[idx][0,1]
+            c_x, c_y = denoise(c_x, c_y)
+    
+            # rotate by theta
+            c_x, c_y = rotate(c_x, c_y, theta)
+            c_x -= c_x[0]
+            c_y -= c_y[0]
+            c_x += x_inp[-1]
+            c_y += y_inp[-1]
+        
+            c_inp = np.dstack((c_x, c_y)).flatten()
+            traj_inp = np.hstack((traj_inp, c_inp))
+            
+        vx_fut = vx_traj[self.t_obs:]
+        vy_fut = vy_traj[self.t_obs:]
+#         traj_out = np.vstack((x_fut, y_fut))#.flatten()
+#         traj_out = np.swapaxes(traj_out, 0, 1)
+        traj_out = np.hstack((x_fut, y_fut)).flatten()      
+#         traj_out = np.hstack((x_fut, y_fut)).flatten()
+
+        fixed_params = np.array([x_fut[0], y_fut[0], 0, psi_fut[0], psidot_fut[0]])
+        var_inp = np.array([x_inp[-1], y_inp[-1], psi_fut[-1]])
+
+        return torch.tensor(traj_inp), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
+    
 train_dataset = TrajectoryDataset("/datasets/argoverse/val_data.npy", centerline_dir="/datasets/argoverse/val_centerlines.npy")
 train_loader = DataLoader(train_dataset, batch_size=20, shuffle=False, num_workers=0)

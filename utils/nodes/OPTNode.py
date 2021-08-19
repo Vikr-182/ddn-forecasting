@@ -23,229 +23,164 @@ from argoverse.visualization.visualize_sequences import viz_sequence
 avm = ArgoverseMap()
 
 class OPTNode(AbstractDeclarativeNode):
-    def __init__(self, P, Pddot, A_eq, A_obs, Q_smoothness, x_obs, y_obs, num=12, num_obs=4, nvar=11, a_obs=1.0, b_obs=1.0, rho_obs=0.3, rho_eq=10.0, weight_smoothness=10, maxiter=300, eps=1e-7, num_tot=48, device="cpu"):
+    def __init__(self, rho_eq=1.0, rho_goal=1.0, rho_nonhol=1.0, rho_psi=1.0, maxiter=5000, weight_smoothness=1.0, weight_smoothness_psi=1.0, t_fin=2.0, num=30, bernstein_coeff_order10_new=None, device="cpu"):
         super().__init__()
-        self.P = torch.tensor(P, dtype=torch.double).to(device)
-        self.Pddot = torch.tensor(Pddot, dtype=torch.double).to(device)
-        self.A_eq = torch.tensor(A_eq, dtype=torch.double).to(device)
-        self.A_obs = torch.tensor(A_obs, dtype=torch.double).to(device)
-        self.Q_smoothness = torch.tensor(Q_smoothness, dtype=torch.double).to(device)
-        self.x_obs = torch.tensor(x_obs, dtype=torch.double).to(device)
-        self.y_obs = torch.tensor(y_obs, dtype=torch.double).to(device)
-        
-        self.num = num
-        self.num_obs = num_obs
-        self.eps = eps
-        self.nvar = nvar        
-        self.a_obs = a_obs
-        self.b_obs = b_obs        
         self.rho_eq = rho_eq
-        self.num_obs = num_obs
+        self.rho_goal = rho_goal
+        self.rho_nonhol = rho_nonhol
+        self.rho_psi = rho_psi
         self.maxiter = maxiter
-        self.num_tot = num_tot
-        self.rho_obs = rho_obs
-        self.device = device
         self.weight_smoothness = weight_smoothness
+        self.weight_smoothness_psi = weight_smoothness_psi
+        self.bernstein_coeff_order10_new = bernstein_coeff_order10_new
         
-    def objective(self, b, lamda_x, lamda_y, y):  
-        batch_size, _ = b.size()
-        b = b.transpose(0, 1)
-        y = y.transpose(0, 1)
-        lamda_x = lamda_x.transpose(0, 1)
-        lamda_y = lamda_y.transpose(0, 1)
-        bx_eq_tensor, by_eq_tensor = torch.split(b, 6, dim=0)
-        ones_tensor = torch.ones(self.num_tot, batch_size, dtype=torch.double).to(self.device)
-
-        c_x = y[0:self.nvar]
-        c_y = y[self.nvar:2 * self.nvar]
-        alpha_obs = y[2 * self.nvar: 2 * self.nvar + self.num_tot]
-        d_obs = y[2 * self.nvar + self.num_tot:]
-
-        cost_smoothness_x = 0.5 * self.weight_smoothness * torch.diag(torch.matmul(c_x.T, torch.matmul(self.Q_smoothness, c_x)))
-        cost_smoothness_y = 0.5 * self.weight_smoothness * torch.diag(torch.matmul(c_y.T, torch.matmul(self.Q_smoothness, c_y)))
-
-        temp_x_obs = d_obs * torch.cos(alpha_obs) * self.a_obs
-        b_obs_x = self.x_obs.view(-1, 1) + temp_x_obs
-
-        temp_y_obs = d_obs * torch.sin(alpha_obs) * self.b_obs
-        b_obs_y = self.y_obs.view(-1, 1) + temp_y_obs
-
-        cost_obs_x = 0.5 * self.rho_obs * (torch.sum((torch.matmul(self.A_obs, c_x) - b_obs_x) ** 2, axis=0))
-        cost_obs_y = 0.5 * self.rho_obs * (torch.sum((torch.matmul(self.A_obs, c_y) - b_obs_y) ** 2, axis=0))
-        cost_slack = self.rho_obs * torch.sum(torch.max(1 - d_obs, ones_tensor), axis=0)
-
-        cost_eq_x = 0.5 * self.rho_eq * torch.sum((torch.matmul(self.A_eq, c_x) - bx_eq_tensor) ** 2, axis=0)
-        cost_eq_y = 0.5 * self.rho_eq * torch.sum((torch.matmul(self.A_eq, c_y) - by_eq_tensor) ** 2, axis=0)
-
-        cost_x = cost_smoothness_x + cost_obs_x + cost_eq_x - torch.diag(torch.matmul(lamda_x.transpose(0, 1), c_x))
-        cost_y = cost_smoothness_y + cost_obs_y + cost_eq_y - torch.diag(torch.matmul(lamda_y.transpose(0, 1), c_y))
-        cost = cost_x + cost_y + self.eps * torch.sum(c_x ** 2, axis=0) + self.eps * torch.sum(c_y ** 2, axis=0) + self.eps * torch.sum(d_obs ** 2, axis=0) + self.eps * torch.sum(alpha_obs ** 2, axis=0) + cost_slack
-        return cost
-    
-    def optimize(self, b, lamda_x, lamda_y):
-        bx_eq_tensor, by_eq_tensor = torch.split(b, 6, dim=0)
+        self.device = device
         
-        d_obs = torch.ones(self.num_obs, self.num, dtype=torch.double).to(self.device)
-        alpha_obs = torch.zeros(self.num_obs, self.num, dtype=torch.double).to(self.device)
-        ones_tensor = torch.ones((self.num_obs, self.num), dtype=torch.double).to(self.device)
-        cost_smoothness = self.weight_smoothness * torch.matmul(self.Pddot.T, self.Pddot)
-        cost = cost_smoothness + self.rho_obs * torch.matmul(self.A_obs.T, self.A_obs) + self.rho_eq * torch.matmul(self.A_eq.T, self.A_eq)
+        self.t_fin = t_fin
+        self.num = num
+        self.t = self.t_fin / self.num
 
-        for i in range(self.maxiter):
-            temp_x_obs = d_obs * torch.cos(alpha_obs) * self.a_obs
-            temp_y_obs = d_obs * torch.sin(alpha_obs) * self.b_obs
-
-            b_obs_x = self.x_obs.view(self.num * self.num_obs) + temp_x_obs.view(self.num * self.num_obs)
-            b_obs_y = self.y_obs.view(self.num * self.num_obs) + temp_y_obs.view(self.num * self.num_obs)
-
-            lincost_x = -lamda_x - self.rho_obs * torch.matmul(self.A_obs.T, b_obs_x) - self.rho_eq * torch.matmul(self.A_eq.T, bx_eq_tensor)
-            lincost_y = -lamda_y - self.rho_obs * torch.matmul(self.A_obs.T, b_obs_y) - self.rho_eq * torch.matmul(self.A_eq.T, by_eq_tensor)
-
-            lincost_x = lincost_x.view(-1, 1)
-            lincost_y = lincost_y.view(-1, 1)
-
-            sol_x, _ = torch.solve(lincost_x, -cost)
-            sol_y, _ = torch.solve(lincost_y, -cost)
-
-            sol_x = sol_x.view(-1)
-            sol_y = sol_y.view(-1)
-
-            x = torch.matmul(self.P, sol_x)
-            y = torch.matmul(self.P, sol_y)
-
-            wc_alpha = x - self.x_obs
-            ws_alpha = y - self.y_obs
-            alpha_obs = torch.atan2(ws_alpha * self.a_obs, wc_alpha * self.b_obs)
-
-            c1_d = self.rho_obs * (self.a_obs ** 2 * torch.cos(alpha_obs) ** 2 + self.b_obs ** 2 * torch.sin(alpha_obs) ** 2)
-            c2_d = self.rho_obs * (self.a_obs * wc_alpha * torch.cos(alpha_obs) + self.b_obs * ws_alpha * torch.sin(alpha_obs))
-            d_temp = c2_d / c1_d
-            d_obs = torch.max(d_temp, ones_tensor)
-
-            res_x_obs_vec = wc_alpha - self.a_obs * d_obs * torch.cos(alpha_obs)
-            res_y_obs_vec = ws_alpha - self.b_obs * d_obs * torch.sin(alpha_obs)
-
-            res_eq_x_vec = torch.matmul(self.A_eq, sol_x) - bx_eq_tensor
-            res_eq_y_vec = torch.matmul(self.A_eq, sol_y) - by_eq_tensor
-
-            lamda_x -= self.rho_obs * torch.matmul(self.A_obs.T, res_x_obs_vec.view(-1)) + self.rho_eq * torch.matmul(self.A_eq.T, res_eq_x_vec)
-            lamda_y -= self.rho_obs * torch.matmul(self.A_obs.T, res_y_obs_vec.view(-1)) + self.rho_eq * torch.matmul(self.A_eq.T, res_eq_y_vec)
-
-        sol = torch.cat([sol_x, sol_y, alpha_obs.view(-1), d_obs.view(-1)])
-#         print(sol_x.shape)
-        return sol    
-    
-    def solve(self, b, lamda_x, lamda_y):
-        batch_size, _ = b.size()
-        b = b.transpose(0, 1)
-        lamda_x = lamda_x.transpose(0, 1)
-        lamda_y = lamda_y.transpose(0, 1)
-        y = torch.zeros(batch_size, 2 * self.nvar + 2 * self.num_tot, dtype=torch.double).to(self.device)
-        for i in range(batch_size):
-            b_cur = b[:, i]
-            lamda_x_cur = lamda_x[:, i]
-            lamda_y_cur = lamda_y[:, i]
-            sol = self.optimize(b_cur, lamda_x_cur, lamda_y_cur)
-#             print(sol.shape)
-            y[i, :] = sol
-        return y, None
- 
- 
-# #### PyTorch Declarative Function    
-# In[20]:
-
-class OptFunction(torch.autograd.Function):
-    """Generic declarative autograd function.
-    Defines the forward and backward functions. Saves all inputs and outputs,
-    which may be memory-inefficient for the specific problem.
-    
-    Assumptions:
-    * All inputs are PyTorch tensors
-    * All inputs have a single batch dimension (b, ...)
-    """
-    @staticmethod
-    def forward(ctx, problem, *inputs):
-        output, solve_ctx = torch.no_grad()(problem.solve)(*inputs)
-        ctx.save_for_backward(output, *inputs)
-        ctx.problem = problem
-        ctx.solve_ctx = solve_ctx
-        return output.clone()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        output, *inputs = ctx.saved_tensors
-        problem = ctx.problem
-        solve_ctx = ctx.solve_ctx
-        output.requires_grad = True
-        inputs = tuple(inputs)
-        grad_inputs = problem.gradient(*inputs, y=output, v=grad_output,
-            ctx=solve_ctx)
-        return (None, *grad_inputs)
-
-
-
-
-# #### PyTorch Declarative Layer
-
-# In[22]:
-
-class OptLayer(torch.nn.Module):
-    """Generic declarative layer.
-    
-    Assumptions:
-    * All inputs are PyTorch tensors
-    * All inputs have a single batch dimension (b, ...)
-    Usage:
-        problem = <derived class of *DeclarativeNode>
-        declarative_layer = DeclarativeLayer(problem)
-        y = declarative_layer(x1, x2, ...)
-    """
-    def __init__(self, problem):
-        super(OptLayer, self).__init__()
-        self.problem = problem
+        #self.num_batch = 10
         
-    def forward(self, *inputs):
-        return OptFunction.apply(self.problem, *inputs)
-
-
-
-# #### TrajNet
-
-# In[23]:
-
-
-class TrajNet(nn.Module):
-    def __init__(self, opt_layer, P, input_size=16, hidden_size=128, output_size=12, nvar=11, t_obs=8, device="cpu"):
-        super(TrajNet, self).__init__()
-        self.P = torch.tensor(P, dtype=torch.double).to(device)
-        self.nvar = nvar
-        self.t_obs = t_obs
-#         hidden_size = 256
-        self.linear1 = nn.Linear(input_size, hidden_size)
-#         hidden_size = 64
-        self.linear2 = nn.Linear(hidden_size, output_size)
-        self.opt_layer = opt_layer
-        self.activation = nn.ReLU()
-        self.mask = torch.tensor([[1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0]], dtype=torch.double)
-#        b_inp = np.array([x_fut[0], vx_beg, 0, x_fut[-1], 0, 0, y_fut[0], vy_beg, 0, y_fut[-1], 0, 0])    
-        self.device = "cpu"
+        tot_time = np.linspace(0.0, self.t_fin, self.num)
+        tot_time_copy = tot_time.reshape(self.num, 1)
+        self.P, self.Pdot, self.Pddot = bernstein_coeff_order10_new(10, tot_time_copy[0], tot_time_copy[-1], tot_time_copy)
+        self.nvar = np.shape(self.P)[1]
         
-    def forward(self, x, b):
-        batch_size, _ = x.size()
-        out = self.activation(self.linear1(x))
-        b_pred = self.linear2(out)
-        b_gen = self.mask * b + (1 - self.mask) * b_pred
+        self.cost_smoothness = self.weight_smoothness * np.dot(self.Pddot.T, self.Pddot)
+        self.cost_smoothness_psi = self.weight_smoothness_psi * np.dot(self.Pddot.T, self.Pddot)
+        self.lincost_smoothness_psi = np.zeros(self.nvar)
+
+        self.A_eq = np.vstack((self.P[0], self.P[-1]))
+        self.A_eq_psi = np.vstack((self.P[0], self.Pdot[0], self.P[-1]))
         
-        # Run optimization
-        lamda_x = torch.zeros(batch_size, self.nvar, dtype=torch.double).to(self.device)
-        lamda_y = torch.zeros(batch_size, self.nvar, dtype=torch.double).to(self.device)
-        sol = self.opt_layer(b_gen, lamda_x, lamda_y)
-        # Compute final trajectory
-        x_pred = torch.matmul(self.P, sol[:, :self.nvar].transpose(0, 1))
-        y_pred = torch.matmul(self.P, sol[:, self.nvar:2*self.nvar].transpose(0, 1))
-        x_pred = x_pred.transpose(0, 1)
-        y_pred = y_pred.transpose(0, 1)
-        out = torch.cat([x_pred, y_pred], dim=1)
-        #return out, sol, b_gen, lamda_x, lamda_y
-        return out
+        self.P = torch.tensor(self.P, dtype=torch.double).to(device)
+        self.Pdot = torch.tensor(self.Pdot, dtype=torch.double).to(device)
+        self.Pddot = torch.tensor(self.Pddot, dtype=torch.double).to(device)
+        self.A_eq = torch.tensor(self.A_eq, dtype=torch.double).to(device)        
+        self.A_eq_psi = torch.tensor(self.A_eq_psi, dtype=torch.double).to(device)
+        self.cost_smoothness = torch.tensor(self.cost_smoothness, dtype=torch.double).to(device)
+        self.cost_smoothness_psi = torch.tensor(self.cost_smoothness_psi, dtype=torch.double).to(device)
+        self.lincost_smoothness_psi = torch.tensor(self.lincost_smoothness_psi, dtype=torch.double).to(device)
     
+        self.A_nonhol = self.Pdot
+        self.A_psi = self.P
+        
+        self.lamda_x = None
+        self.lamda_y = None
+        self.lamda_psi = None
+        
+    def compute_x(self, v, psi, b_eq_x, b_eq_y):
+        b_nonhol_x = v * torch.cos(psi)
+        b_nonhol_y = v * torch.sin(psi)
+    
+        cost = self.cost_smoothness + self.rho_nonhol * torch.matmul(self.A_nonhol.T, self.A_nonhol) + self.rho_eq * torch.matmul(self.A_eq.T, self.A_eq)
+        lincost_x = -self.lamda_x - self.rho_nonhol * torch.matmul(self.A_nonhol.T, b_nonhol_x.T).T - self.rho_eq * torch.matmul(self.A_eq.T, b_eq_x.T).T
+        lincost_y = -self.lamda_y - self.rho_nonhol * torch.matmul(self.A_nonhol.T, b_nonhol_y.T).T - self.rho_eq * torch.matmul(self.A_eq.T, b_eq_y.T).T
+
+        cost_inv = torch.linalg.inv(cost)
+
+        sol_x = torch.matmul(-cost_inv, lincost_x.T).T
+        sol_y = torch.matmul(-cost_inv, lincost_y.T).T
+
+        x = torch.matmul(self.P, sol_x.T).T
+        xdot = torch.matmul(self.Pdot, sol_x.T).T
+
+        y = torch.matmul(self.P, sol_y.T).T
+        ydot = torch.matmul(self.Pdot, sol_y.T).T
+         
+        return sol_x, sol_y, x, xdot, y, ydot
+    
+    def compute_psi(self, psi, lamda_psi, psi_temp, b_eq_psi):
+        cost = self.cost_smoothness_psi + self.rho_psi * torch.matmul(self.A_psi.T, self.A_psi) + self.rho_eq * torch.matmul(self.A_eq_psi.T, self.A_eq_psi)
+        lincost_psi = -self.lamda_psi - self.rho_psi * torch.matmul(self.A_psi.T, psi_temp.T).T - self.rho_eq * torch.matmul(self.A_eq_psi.T, b_eq_psi.T).T
+
+        cost_inv = torch.linalg.inv(cost)
+
+        sol_psi = torch.matmul(-cost_inv, lincost_psi.T).T
+
+        psi = torch.matmul(self.P, sol_psi.T).T
+
+        res_psi = torch.matmul(self.A_psi, sol_psi.T).T - psi_temp
+        res_eq_psi = torch.matmul(self.A_eq_psi, sol_psi.T).T - b_eq_psi
+
+        self.lamda_psi = self.lamda_psi - self.rho_psi * torch.matmul(self.A_psi.T, res_psi.T).T - self.rho_eq * torch.matmul(self.A_eq_psi.T, res_eq_psi.T).T
+
+        return sol_psi, np.linalg.norm(res_psi), np.linalg.norm(res_eq_psi), psi
+
+    
+    def solve(self, fixed_params, variable_params):
+        batch_size, _ = fixed_params.size()
+        x_init, y_init, v_init, psi_init, psidot_init = torch.chunk(fixed_params, 5, dim=1)
+        x_fin, y_fin, psi_fin = torch.chunk(variable_params, 3, dim=1)
+        
+        b_eq_x = torch.cat((x_init, x_fin), dim=1)
+        b_eq_y = torch.cat((y_init, y_fin), dim=1)
+        b_eq_psi = torch.cat((psi_init, psidot_init, psi_fin), dim=1)
+        
+        v = torch.ones(batch_size, self.num, dtype=torch.double).to(self.device) * v_init
+        psi = torch.ones(batch_size, self.num, dtype=torch.double).to(self.device) * psi_init
+        xdot = v * torch.cos(psi)
+        ydot = v * torch.sin(psi)
+        
+        self.lamda_x = torch.zeros(batch_size, self.nvar, dtype=torch.double).to(self.device)
+        self.lamda_y = torch.zeros(batch_size, self.nvar, dtype=torch.double).to(self.device)
+        self.lamda_psi = torch.zeros(batch_size, self.nvar, dtype=torch.double).to(self.device)
+        
+        res_psi_arr = []
+        res_eq_psi_arr = []
+        res_eq_arr = []
+        res_nonhol_arr = []
+        for i in range(0, self.maxiter):
+            psi_temp = torch.atan2(ydot, xdot)
+            c_psi, res_psi, res_eq_psi, psi = self.compute_psi(psi, self.lamda_psi, psi_temp, b_eq_psi)
+            c_x, c_y, x, xdot, y, ydot = self.compute_x(v, psi, b_eq_x, b_eq_y)
+            
+            res_eq_psi_arr.append(res_eq_psi)
+            res_psi_arr.append(res_psi)
+            v = torch.sqrt(xdot ** 2 + ydot ** 2)
+            #v[:, 0] = v_init[:, 0]
+
+            res_eq_x = torch.matmul(self.A_eq, c_x.T).T - b_eq_x
+            res_nonhol_x = xdot - v * torch.cos(psi)
+
+            res_eq_y = torch.matmul(self.A_eq, c_y.T).T - b_eq_y
+            res_nonhol_y = ydot - v * torch.sin(psi)
+
+            res_eq_arr.append(np.linalg.norm(np.sqrt(res_eq_x**2 + res_eq_y**2)))
+            res_nonhol_arr.append(np.linalg.norm(np.sqrt(res_nonhol_x**2 + res_nonhol_y**2)))
+            
+            self.lamda_x = self.lamda_x - self.rho_eq * torch.matmul(self.A_eq.T, res_eq_x.T).T - self.rho_nonhol * torch.matmul(self.A_nonhol.T, res_nonhol_x.T).T
+            self.lamda_y = self.lamda_y - self.rho_eq * torch.matmul(self.A_eq.T, res_eq_y.T).T - self.rho_nonhol * torch.matmul(self.A_nonhol.T, res_nonhol_y.T).T
+        
+        primal_sol = torch.hstack((c_x, c_y, c_psi, v))
+        return primal_sol, None
+    
+    def objective(self, fixed_params, variable_params, y):
+        c_x = y[:, :self.nvar]
+        c_y = y[:, self.nvar:2*self.nvar]
+        c_psi = y[:, 2*self.nvar:3*self.nvar]
+        v = y[:, 3*self.nvar:]
+        
+        x_init, y_init, v_init, psi_init, psidot_init = torch.chunk(fixed_params, 5, dim=1)
+        x_fin, y_fin, psi_fin = torch.chunk(variable_params, 3, dim=1)
+        
+        x = torch.matmul(self.P, c_x.T).T
+        y = torch.matmul(self.P, c_y.T).T
+        psi = torch.matmul(self.P, c_psi.T).T
+        xdot = torch.matmul(self.Pdot, c_x.T).T
+        ydot = torch.matmul(self.Pdot, c_y.T).T
+        psidot = torch.matmul(self.Pdot, c_psi.T).T
+        xddot = torch.matmul(self.Pddot, c_x.T).T
+        yddot = torch.matmul(self.Pddot, c_y.T).T
+        psiddot = torch.matmul(self.Pddot, c_psi.T).T
+        
+        cost_nonhol = 0.5*self.rho_nonhol*torch.sum((xdot - v*torch.cos(psi)) ** 2, 1) + 0.5*self.rho_nonhol*torch.sum((ydot - v*torch.sin(psi)) ** 2, 1)
+        cost_pos = 0.5*self.rho_eq*(torch.sum((x[:, -1] - x_fin) ** 2, 1) + torch.sum((y[:, -1] - y_fin) ** 2, 1) + torch.sum((x[:, 0] - x_init) ** 2, 1) + torch.sum((y[:, 0] - y_init) ** 2, 1))
+        cost_psi = 0.5*self.rho_eq*(torch.sum((psi[:, -1] - psi_fin) ** 2, 1) + torch.sum((psi[:, 0] - psi_init) ** 2, 1)
+                                    + torch.sum((psidot[:, 0] - psidot_init) ** 2, 1))
+        #cost_v = 0.5*self.rho_eq*torch.sum((v[:, 0] - v_init) ** 2, 1)
+        cost_cancel = torch.diagonal(torch.matmul(-self.lamda_x, c_x.T) + torch.matmul(-self.lamda_y, c_y.T) + torch.matmul(-self.lamda_psi, c_psi.T))
+        
+        cost_smoothness = 0.5*self.weight_smoothness*(torch.sum(xddot**2, 1) + torch.sum(yddot**2, 1)) + 0.5*self.weight_smoothness_psi*torch.sum(psiddot**2, 1)
+        return cost_nonhol + cost_pos + cost_psi + cost_smoothness + cost_cancel #+ cost_v 
