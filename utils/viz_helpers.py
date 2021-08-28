@@ -11,8 +11,8 @@ def plot_traj(cnt, traj_inp, traj_out, traj_pred, obs, batch_num=0, num = 30, of
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     # Get lane centerlines which lie within the range of trajectories
-    ox = offsets[ind][0] + 2
-    oy = offsets[ind][1] + 2
+    ox = 0
+    oy = 0
     if avm is not None:
         city = cities[ind]
         ox = offsets[ind][0] + 2
@@ -33,13 +33,14 @@ def plot_traj(cnt, traj_inp, traj_out, traj_pred, obs, batch_num=0, num = 30, of
             if True:
                 ax.plot(lane_cl[:, 0], lane_cl[:, 1], "--", color="grey", alpha=1, linewidth=1, zorder=0)
 
-    ax.scatter(traj_inp[:inp_len:2] + ox, traj_inp[1:inp_len:2] + oy, color='blue', label='Inp traj')
+#     ax.scatter(traj_inp[:inp_len:2] + ox, traj_inp[1:inp_len:2] + oy, color='blue', label='Inp traj')
+    ax.scatter(traj_inp[:, 0] + ox, traj_inp[:, 1] + oy, color='blue', label='Inp traj')
     ax.scatter(traj_out[:num] + ox, traj_out[num:] + oy, color='orange', label='GT')
     ax.scatter(traj_pred[:num] + ox, traj_pred[num:] + oy, color='green', label='Pred')
 
     if center:
         ax.plot(traj_inp[inp_len:c_len:2] + ox, traj_inp[inp_len + 1:c_len:2] + oy, color='black',label='primary-centerline')
-    
+    ax.axis('equal')
     ax.legend()
     if mode == "train":
         plt.savefig('./results/{}.png'.format(cnt))

@@ -195,16 +195,17 @@ class TrajNet(nn.Module):
         self.opt_layer = opt_layer
         self.activation = nn.ReLU()
         self.dtype=torch.float64        
+#         self.mask = torch.tensor([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]], dtype=torch.double).to(device)
         self.mask = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.double).to(device)
-    
+        
     def forward(self, x, fixed_params, var_inp):
-        batch_size, _, __ = x.size()
-        x = x.reshape(batch_size, _ * __)
+#         batch_size, _, __ = x.size()
+        batch_size, _ = x.size()        
+#         x = x.reshape(batch_size, _ * __)
         out1 = self.activation(self.linear1(x)) # 40 to 128
         out2 = self.activation(self.linear2(out1)) # 128 to 16
         variable_params = self.linear3(out2) # 16 to 3
         # to shape (b, 3)
-
         # Run optimization
         variable_params = self.mask * var_inp + (1-self.mask) * variable_params
 

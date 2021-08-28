@@ -119,13 +119,14 @@ def rotate(gt_x, gt_y,theta):
     return gt_x, gt_y
 
 class ArgoverseDataset(Dataset):
-    def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False):
+    def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False, flatten=True):
         self.data = np.load(data_path)
         self.data_path = data_path
         self.t_obs = t_obs
         self.dt = dt
         self.include_centerline = include_centerline
         self.centerline_dir = centerline_dir
+        self.flatten = flatten
     
     def __len__(self):
         return len(self.data)
@@ -197,9 +198,11 @@ class ArgoverseDataset(Dataset):
         x_fut = x_traj[self.t_obs:]
         y_fut = y_traj[self.t_obs:]
         
-#         traj_inp = np.dstack((x_inp, y_inp)).flatten()  
-        traj_inp = np.vstack((x_inp, y_inp))
-        traj_inp = np.swapaxes(traj_inp, 0, 1)
+        if self.flatten:
+            traj_inp = np.dstack((x_inp, y_inp)).flatten()  
+        else:
+            traj_inp = np.vstack((x_inp, y_inp))
+            traj_inp = np.swapaxes(traj_inp, 0, 1)
         
         if self.include_centerline:
             cs = np.load(self.centerline_dir)[idx]
@@ -225,13 +228,18 @@ class ArgoverseDataset(Dataset):
         vy_fut = vy_traj[self.t_obs:]
 #         traj_out = np.vstack((x_fut, y_fut))#.flatten()
 #         traj_out = np.swapaxes(traj_out, 0, 1)
-        traj_out = np.hstack((x_fut, y_fut)).flatten()      
+        traj_out = np.hstack((x_fut, y_fut)).flatten()
 #         traj_out = np.hstack((x_fut, y_fut)).flatten()
 
         fixed_params = np.array([x_fut[0], y_fut[0], 0, psi_fut[0], psidot_fut[0]])
         var_inp = np.array([x_inp[-1], y_inp[-1], psi_fut[-1]])
+#         var_inp = np.array([x_inp[-1], y_inp[-1], psi_fut[-1], x_fut[10], y_fut[10], x_fut[20], y_fut[20]])
 
         return torch.tensor(traj_inp), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
-    
+        #if self.flatten:
+        #    return torch.tensor(traj_inp).flatten(), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
+        #else:
+
+
 train_dataset = TrajectoryDataset("/datasets/argoverse/val_data.npy", centerline_dir="/datasets/argoverse/val_centerlines.npy")
 train_loader = DataLoader(train_dataset, batch_size=20, shuffle=False, num_workers=0)
