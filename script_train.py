@@ -54,8 +54,11 @@ batch_size = args.train_batch_size
 
 train_dir = args.train_dir
 centerline_train_dir = args.train_centerlines_dir
-test_dir = args.test_dir
-centerline_test_dir = args.test_centerlines_dir
+if args.test:
+    test_dir = args.test_dir
+    centerline_test_dir = args.test_centerlines_dir
+else:
+    test_dir = args.train_dir
 val_offsets_dir = args.val_offsets_dir
 
 # In[2]:
