@@ -61,6 +61,12 @@ def parse_arguments():
             help="path to the file which has test centerlines.",
             )
     parser.add_argument(
+            "--network",
+            default="MLP",
+            type=str,
+            help="type of network.",
+            )    
+    parser.add_argument(
             "--joblib_batch_size",
             default=100,
             type=int,

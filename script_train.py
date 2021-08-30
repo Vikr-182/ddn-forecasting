@@ -37,9 +37,15 @@ from utils.args_parser import *
 import pytorch_lightning as pl
 device = 'cpu'
 
-Model = TrajNetLSTM
+model_dict = {
+    "MLP": TrajNet,
+    "LSTM": TrajNetLSTM,
+    "LSTMED": TrajNetLSTMSimple
+}
 
 args = parse_arguments()
+network_type = args.network
+Model = model_dict[network_type]
 num = args.pred_len
 t_obs = args.obs_len
 num_elems = args.num_elems
@@ -170,7 +176,6 @@ for epoch in range(num_epochs):
 
 
 # In[ ]:
-'''
 if args.test is False:
     exit()
 
@@ -208,5 +213,3 @@ with torch.no_grad():
 mean_loss = np.mean(test_loss)
 print("Epoch Mean Test Loss: {}".format(mean_loss))
 print("Mean ADE: {}".format(np.mean(mean_ade)), "Mean FDE: {}".format(np.mean(mean_fde)))
-
-'''
