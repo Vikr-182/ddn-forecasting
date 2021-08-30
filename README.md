@@ -12,6 +12,10 @@ Find the top 1000sq in `data/` folder.
 ```
 python3 script_train.py --train_dir <path/to/train/dataset> --test_dir <path/to/val/dir> --lr 0.0005 --traj_save_path <path/to/saved/results>
 ```
+If using the MLP model, make sure to flatten using the `--flatten` option -
+```
+python3 script_train.py --train_dir <path/to/train/dataset> --test_dir <path/to/val/dir> --lr 0.0005 --traj_save_path <path/to/saved/results> --flatten
+```
 
 ## Test
 ```
