@@ -20,7 +20,6 @@ import matplotlib.pyplot as plt
 
 from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
-from bernstein import bernstein_coeff_order10_new
 from ddn.pytorch.node import AbstractDeclarativeNode
 
 # from utils.nodes.OPTNode_waypoint import OPTNode_waypoint
@@ -40,7 +39,8 @@ device = 'cpu'
 model_dict = {
     "MLP": TrajNet,
     "LSTM": TrajNetLSTM,
-    "LSTMED": TrajNetLSTMSimple
+    "LSTMED": TrajNetLSTMSimple,
+    "LSTMSimpler": TrajNetLSTMSimpler
 }
 
 args = parse_arguments()

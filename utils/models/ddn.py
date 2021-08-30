@@ -3,6 +3,7 @@ import sys
 # sys.path.append("/Users/shashanks./Downloads/Installations/ddn/")
 sys.path.append("./ddn/")
 sys.path.append("./")
+sys.path.append("../")
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -14,7 +15,6 @@ import matplotlib.pyplot as plt
 
 from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
-from bernstein import bernstein_coeff_order10_new
 from ddn.pytorch.node import AbstractDeclarativeNode
 
 def bernstein_coeff_order10_new(n, tmin, tmax, t_actual):
@@ -264,6 +264,58 @@ class TrajNetLSTM(nn.Module):
 #         print(out[:,-1].shape)
         pad_zeros = torch.zeros(out.shape[0], 1, dtype=self.dtype)
         variable_params = torch.cat((out[:, -1],pad_zeros), dim=1)
+        
+#         variable_params = self.activation(self.linear(out.reshape(out2.shape[0], -1)))
+
+        # Run optimization
+        variable_params = self.mask * var_inp + (1-self.mask) * variable_params
+
+        sol = self.opt_layer(fixed_params, variable_params)
+         
+        # Compute final trajectory
+        x_pred = torch.matmul(self.P, sol[:, :self.nvar].transpose(0, 1))
+        y_pred = torch.matmul(self.P, sol[:, self.nvar:2*self.nvar].transpose(0, 1))
+        x_pred = x_pred.transpose(0, 1)
+        y_pred = y_pred.transpose(0, 1)
+        out = torch.cat([x_pred, y_pred], dim=1)
+        return out    
+
+class TrajNetLSTMSimpler(nn.Module):
+    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 2, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
+        super(TrajNetLSTMSimpler, self).__init__()
+        self.nvar = nvar
+        self.t_obs = t_obs
+        self.P = torch.tensor(P, dtype=torch.double).to(device)
+        self.Pdot = torch.tensor(Pdot, dtype=torch.double).to(device)
+        self.linear1 = nn.Linear(input_size, embedding_size)
+        #self.linear2 = nn.Linear(hidden_size, output_size)
+        self.linear2 = nn.Linear(embedding_size, output_size + 1)
+        #self.linear3 = nn.Linear(hidden_size, output_size + 1)
+        self.encoderlstm = nn.LSTM(input_size = embedding_size, hidden_size = embedding_size, batch_first=True)
+        #self.decoderlstm = nn.LSTM(hidden_size, output_size, num_layers, batch_first=True)
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.input_size = input_size
+        self.output_size = output_size
+        self.num_layers = num_layers
+        self.opt_layer = opt_layer
+        self.activation = nn.ReLU()
+        self.dtype=torch.float64        
+        self.mask = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.double).to(device)
+    
+    def forward(self, x, fixed_params, var_inp):
+#         batch_size, _ = x.size()
+        batch_size, _, __ = x.size()
+        out = self.activation(self.linear1(x))
+        #hidden_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
+        #cell_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
+        #torch.nn.init.xavier_normal_(hidden_state)
+        #torch.nn.init.xavier_normal_(cell_state)
+        out, (hidden_state, cell_state) = self.encoderlstm(out)
+        
+#         # out of shape (b, 20, 2) -> (b, 30, 2)
+        variable_params = self.linear2(hidden_state[0])
+        #variable_params = torch.cat((out[:, -1],pad_zeros), dim=1)
         
 #         variable_params = self.activation(self.linear(out.reshape(out2.shape[0], -1)))
 
