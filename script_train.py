@@ -43,7 +43,8 @@ model_dict = {
     "MLP": TrajNet,
     "LSTM": TrajNetLSTM,
     "LSTMSimple": TrajNetLSTMSimple,
-    "LSTMSimpler": TrajNetLSTMSimpler
+    "LSTMSimpler": TrajNetLSTMSimpler,
+    "LSTMPredHeading": TrajNetLSTMPredFinalHead
 }
 
 args = parse_arguments()
