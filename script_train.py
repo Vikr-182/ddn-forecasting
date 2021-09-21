@@ -17,10 +17,11 @@ import numpy as np
 import scipy.special
 import torch.nn as nn
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
-from ddn.pytorch.node import AbstractDeclarativeNode
+from ddn.ddn.pytorch.node import AbstractDeclarativeNode
 
 # from utils.nodes.OPTNode_waypoint import OPTNode_waypoint
 from utils.nodes.OPTNode import OPTNode
@@ -34,12 +35,14 @@ from utils.metrics import get_ade, get_fde
 from utils.args_parser import *
 
 import pytorch_lightning as pl
-device = 'cpu'
+
+use_cuda = torch.cuda.is_available()
+device = torch.device('cpu')
 
 model_dict = {
     "MLP": TrajNet,
     "LSTM": TrajNetLSTM,
-    "LSTMED": TrajNetLSTMSimple,
+    "LSTMSimple": TrajNetLSTMSimple,
     "LSTMSimpler": TrajNetLSTMSimpler
 }
 
@@ -50,13 +53,15 @@ num = args.pred_len
 t_obs = args.obs_len
 num_elems = args.num_elems
 include_centerline = args.include_centerline
-name = "final_without" if include_centerline else "final_with"
+name = "final_without_ok" if include_centerline else "final_with"
 lr = args.lr
 shuffle = args.shuffle
 num_waypoints = args.num_waypoints
 flatten = args.flatten
 num_epochs = args.end_epoch
 batch_size = args.train_batch_size
+num_workers = 10
+saved_model = args.model_path
 
 train_dir = args.train_dir
 centerline_train_dir = args.train_centerlines_dir
@@ -69,10 +74,10 @@ val_offsets_dir = args.val_offsets_dir
 
 # In[2]:
 train_dataset = ArgoverseDataset(train_dir, centerline_dir=centerline_train_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
 test_dataset = ArgoverseDataset(test_dir, centerline_dir=centerline_test_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
 offsets_train = np.load(val_offsets_dir)
 
@@ -82,12 +87,15 @@ opt_layer = DeclarativeLayer(problem)
 # model = TrajNetLSTM(opt_layer, problem.P, problem.Pdot)#, input_size=t_obs * 2 + include_centerline * num_elems * 2)
 # model = TrajNet(opt_layer, problem.P, problem.Pdot)#, input_size=t_obs * 2 + include_centerline * num_elems * 2)
 if flatten:
-    model = Model(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2)
+    model = Model(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2, device=device)
 else:
-    model = Model(opt_layer, problem.P, problem.Pdot)
+    model = Model(opt_layer, problem.P, problem.Pdot, device=device)
 # model = TrajNet(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2, output_size = num_waypoints * 2 + 2)
+#model = torch.nn.DataParallel(model, device_ids=[0])
 model = model.double()
 model = model.to(device)
+
+if saved_model != "" and saved_model != None: model.load_state_dict(torch.load(saved_model))
 
 # model.load_state_dict(torch.load("./checkpoints/final.ckpt"))
 
@@ -98,14 +106,16 @@ optimizer = torch.optim.SGD(model.parameters(), lr = lr)
 # In[3]:
 
 
-for batch_num, data in enumerate(train_loader):
+for batch_num, data in enumerate(tqdm(train_loader)):
     traj_inp, traj_out, fixed_params, var_inp = data
     torch.set_printoptions(precision=None, threshold=None, edgeitems=None, linewidth=None, profile=None, sci_mode=False)
+    traj_inp, traj_out, fixed_params, var_inp = traj_inp.to(device), traj_out.to(device), fixed_params.to(device), var_inp.to(device)
     print(traj_inp.size(), traj_out.size())
     ade = []
     fde = []
 #     out = model(traj_inp.float(), fixed_params.float(), var_inp.float())
     out = model(traj_inp, fixed_params, var_inp)
+    print(out.size())
 #     print(out.shape)
 #    print(traj_inp[1][:40:2].detach().numpy())
     #plt.scatter([1,2,3], [4,5,6], label='inp')
@@ -124,7 +134,6 @@ for batch_num, data in enumerate(train_loader):
 #    plt.legend()
     break
 
-
 # In[5]:
 
 
@@ -134,7 +143,7 @@ for epoch in range(num_epochs):
     train_loss = []
     mean_ade = []
     mean_fde = []    
-    for batch_num, data in enumerate(train_loader):
+    for batch_num, data in enumerate(tqdm(train_loader)):
         traj_inp, traj_out, fixed_params, var_inp = data
         traj_inp = traj_inp.to(device)
         traj_out = traj_out.to(device)

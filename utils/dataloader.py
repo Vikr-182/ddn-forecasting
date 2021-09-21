@@ -120,7 +120,7 @@ def rotate(gt_x, gt_y,theta):
 
 class ArgoverseDataset(Dataset):
     def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False, flatten=True):
-        self.data = np.load(data_path)
+        self.data = np.load(data_path, allow_pickle=True)
         self.data_path = data_path
         self.t_obs = t_obs
         self.dt = dt
@@ -240,6 +240,3 @@ class ArgoverseDataset(Dataset):
         #    return torch.tensor(traj_inp).flatten(), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
         #else:
 
-
-train_dataset = TrajectoryDataset("/datasets/argoverse/val_data.npy", centerline_dir="/datasets/argoverse/val_centerlines.npy")
-train_loader = DataLoader(train_dataset, batch_size=20, shuffle=False, num_workers=0)
