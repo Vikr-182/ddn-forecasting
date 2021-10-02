@@ -240,6 +240,3 @@ class ArgoverseDataset(Dataset):
         #    return torch.tensor(traj_inp).flatten(), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
         #else:
 
-
-train_dataset = TrajectoryDataset("/datasets/argoverse/val_data.npy", centerline_dir="/datasets/argoverse/val_centerlines.npy")
-train_loader = DataLoader(train_dataset, batch_size=20, shuffle=False, num_workers=0)

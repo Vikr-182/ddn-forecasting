@@ -89,6 +89,9 @@ else:
 model = model.double()
 model = model.to(device)
 
+if args.model_path and args.test:
+    model.load_state_dict(torch.load(args.model_path))
+
 # model.load_state_dict(torch.load("./checkpoints/final.ckpt"))
 
 criterion = nn.MSELoss()
