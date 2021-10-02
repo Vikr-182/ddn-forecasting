@@ -1,7 +1,7 @@
 import os
 import sys
 sys.path.append("../../ddn/")
-sys.path.append("./")
+sys.path.append("../../")
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
-from ddn.pytorch.node import AbstractDeclarativeNode
+from ddn.ddn.pytorch.node import AbstractDeclarativeNode
 
 from argoverse.map_representation.map_api import ArgoverseMap
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader

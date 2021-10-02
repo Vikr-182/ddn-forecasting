@@ -120,7 +120,7 @@ def rotate(gt_x, gt_y,theta):
 
 class ArgoverseDataset(Dataset):
     def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False, flatten=True):
-        self.data = np.load(data_path)
+        self.data = np.load(data_path, allow_pickle=True)
         self.data_path = data_path
         self.t_obs = t_obs
         self.dt = dt
