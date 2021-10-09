@@ -94,16 +94,16 @@ def denoise(gt_x, gt_y, w = 7):
     gt_y_t = []
     for iq in range(len(gt_x)):
         if iq >= w and iq + w <= len(gt_x):
-            gt_x_t.append(np.average(gt_x[iq: iq + w]))
-            gt_y_t.append(np.average(gt_y[iq: iq + w]))
+            gt_x_t.append(np.mean(gt_x[iq: iq + w]))
+            gt_y_t.append(np.mean(gt_y[iq: iq + w]))
         elif iq < w:
-            okx = np.average(gt_x[w: w + w])
+            okx = np.mean(gt_x[w: w + w])
             gt_x_t.append(gt_x[0] + (okx - gt_x[0]) * (iq) / w)
-            oky = np.average(gt_y[w: w + w])
+            oky = np.mean(gt_y[w: w + w])
             gt_y_t.append(gt_y[0] + (oky - gt_y[0]) * (iq) / w)
         else:
-            okx = np.average(gt_x[len(gt_x) - w:len(gt_x) - w  + w])
-            oky = np.average(gt_y[len(gt_x) - w: len(gt_x) - w + w])
+            okx = np.mean(gt_x[len(gt_x) - w:len(gt_x) - w  + w])
+            oky = np.mean(gt_y[len(gt_x) - w: len(gt_x) - w + w])
             gt_x_t.append(okx + (gt_x[-1] - okx) * (w - (len(gt_x) - iq)) / w)
             gt_y_t.append(oky + (gt_y[-1] - oky) * (w - (len(gt_y) - iq)) / w)                   
 
