@@ -6,7 +6,8 @@
 
 import os
 import sys
-sys.path.append("/home/ims/Documents/ddn")
+from tqdm import tqdm
+sys.path.append("./ddn")
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -19,16 +20,16 @@ import matplotlib.pyplot as plt
 
 from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
-from bernstein import bernstein_coeff_order10_new
+from utils.bernstein import bernstein_coeff_order10_new
 from ddn.pytorch.node import AbstractDeclarativeNode
 
 #from OPTNode import OPTNode
-from dataloader import ArgoverseDataset
+from utils.dataloader import ArgoverseDataset
 
 #from models import TrajNet, TrajNetLSTM, TrajNetLSTMSimple
-from bernstein import bernstein_coeff_order10_new
-from viz_helpers import plot_traj, plot_trajj
-from metrics import get_ade, get_fde
+from utils.bernstein import bernstein_coeff_order10_new
+from utils.viz_helpers import plot_traj, plot_trajj
+from utils.metrics import get_ade, get_fde
 
 
 # In[2]:
@@ -301,14 +302,16 @@ num_elems = 15
 include_centerline = False
 name = "final_without" if include_centerline else "final_with"
 lr = 0.0005
+num_workers = 10
+batch_size = 512
 
-train_dataset = ArgoverseDataset("val_data.npy", centerline_dir="val_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline)
-train_loader = DataLoader(train_dataset, batch_size=20, shuffle=False, num_workers=0)
+train_dataset = ArgoverseDataset("/scratch/forecasting/val_data.npy", centerline_dir="/scratch/forecasting/val_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-test_dataset = ArgoverseDataset("val_test_data.npy", centerline_dir="val_test_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline)
-test_loader = DataLoader(test_dataset, batch_size=20, shuffle=False, num_workers=0)
+#test_dataset = ArgoverseDataset("/scratch/forecasting/val_test_data.npy", centerline_dir="/scratch/forecasting/val_test_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline)
+#test_loader = DataLoader(test_dataset, batch_size=20, shuffle=False, num_workers=0)
 
-offsets_train = np.load("val_offsets.npy")
+offsets_train = np.load("/scratch/forecasting/val_offsets.npy")
 
 
 # In[7]:
@@ -346,6 +349,7 @@ else:
 #     model = Model(opt_layer, problem.P, problem.Pdot)
     
 model = model.double()
+model = torch.nn.DataParallel(model, device_ids=[0])
 model = model.to(device)
 
 criterion = nn.MSELoss()
@@ -363,7 +367,7 @@ for epoch in range(num_epochs):
     train_loss = []
     # mean_ade = []
     # mean_fde = []    
-    for batch_num, data in enumerate(train_loader):
+    for batch_num, data in enumerate(tqdm(train_loader)):
         traj_inp, traj_out, fixed_params, var_inp = data
         traj_inp = traj_inp.to(device)
         traj_out = traj_out.to(device)
@@ -388,8 +392,8 @@ for epoch in range(num_epochs):
 #             ade.append(get_ade(np.array(pred), np.array(gt)))
 #             fde.append(get_fde(np.array(pred), np.array(gt)))                        
 #             #plot_traj(ii, traj_inp[ii], traj_out[ii], out[ii], {"x": [], "y": []}, offsets=offsets_train, cities = [], avm=None, center=include_centerline, inp_len=t_obs * 2, c_len = t_obs * 2 + num_elems * 2, num=num, mode="test", batch_num=batch_num)
-        if batch_num % 20 == 0:
-            print("Epoch: {}, Batch: {}, Loss: {}".format(epoch, batch_num, loss.item()))
+        #if batch_num % 20 == 0:
+        #    print("Epoch: {}, Batch: {}, Loss: {}".format(epoch, batch_num, loss.item()))
             #print("ADE: {}".format(np.mean(ade)), "FDE: {}".format(np.mean(fde)))
     
         # mean_ade.append(np.mean(ade))
@@ -397,6 +401,7 @@ for epoch in range(num_epochs):
     
     mean_loss = np.mean(train_loss)
     epoch_train_loss.append(mean_loss)
+    torch.save(model.state_dict(), 'lstmv2_weights.pth')
     #torch.save(model.state_dict(), "./checkpoints/{}.ckpt".format(name))
     print("Epoch: {}, Mean Loss: {}".format(epoch, mean_loss))
     #print("Mean ADE: {}".format(np.mean(mean_ade)), "Mean FDE: {}".format(np.mean(mean_fde)))
@@ -406,5 +411,36 @@ for epoch in range(num_epochs):
 # In[11]:
 
 
-torch.save(model.state_dict(), 'lstmv2_weights.pth')
+outs = []
+for epoch in range(1):
+    train_loss = []
+    # mean_ade = []
+    # mean_fde = []    
+    for batch_num, data in enumerate(tqdm(test_loader)):
+        traj_inp, traj_out, fixed_params, var_inp = data
+        traj_inp = traj_inp.to(device)
+        traj_out = traj_out.to(device)
+        fixed_params = fixed_params.to(device)
+        var_inp = var_inp.to(device)
+
+        # ade = []
+        # fde = []       
+        #print(traj_inp.shape, traj_out.shape, fixed_params.shape, var_inp.shape)
+        out = model(traj_inp, fixed_params, var_inp)
+        loss = criterion(out, traj_out)
+        
+        train_loss.append(loss.item())
+        outs.append(out)
+    mean_loss = np.mean(train_loss)
+    epoch_train_loss.append(mean_loss)
+    torch.save(model.state_dict(), 'lstmv2_weights.pth')
+    #torch.save(model.state_dict(), "./checkpoints/{}.ckpt".format(name))
+    print("Epoch: {}, Mean Loss: {}".format(epoch, mean_loss))
+    #print("Mean ADE: {}".format(np.mean(mean_ade)), "Mean FDE: {}".format(np.mean(mean_fde)))
+    print("-"*100)
+
+np.save("prediction.npy", np.array(outs))
+# In[11]:
+
+
 
