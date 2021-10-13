@@ -38,5 +38,5 @@ echo "Done conda"
 echo "LALA" >> lala.txt
 #cd ~/forecasting/sengming/argo-forecasting-competition
 cd ~/forecasting/ddn-forecasting
-python3 LSTMv2.py --train_dir /scratch/forecasting/val_data.npy --test_dir /scratch/forecasting/val_data.npy --network LSTMEP --lr 0.0001 --val_offsets_dir /scratch/forecasting/val_offsets.npy --end_epoch 1000 
+python3 script_train.py --train_dir /scratch/forecasting/val_data.npy --test_dir /scratch/forecasting/val_data.npy --network LSTMEP --lr 0.0001 --val_offsets_dir /scratch/forecasting/val_offsets.npy --end_epoch 1000 
 echo "Done Training"

@@ -1,0 +1,17 @@
+==========================================
+SLURM_JOB_ID = 509472
+SLURM_NODELIST = gnode45
+SLURM_JOB_GPUS = 
+==========================================
+Copying
+Inside setup
+scp: /share1/vikrant.dewangan/dataset/argoverse/val_test_data.npy: No such file or directory
+Done copying
+Done conda
+Traceback (most recent call last):
+  File "script_train.py", line 29, in <module>
+    from utils.models.ddn import *
+  File "/home2/vikrant.dewangan/forecasting/ddn-forecasting/utils/models/ddn.py", line 16, in <module>
+    from ddn.pytorch.node import AbstractDeclarativeNode
+ModuleNotFoundError: No module named 'ddn.pytorch'
+Done Training

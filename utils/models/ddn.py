@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
-from ddn.pytorch.node import AbstractDeclarativeNode
+from ddn.ddn.pytorch.node import AbstractDeclarativeNode
 
 def bernstein_coeff_order10_new(n, tmin, tmax, t_actual):
     l = tmax - tmin
