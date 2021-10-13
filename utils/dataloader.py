@@ -140,10 +140,7 @@ class ArgoverseDataset(Dataset):
         
         x_traj -= x_traj[0]
         y_traj -= y_traj[0]
-        
-        if self.end_point:
-            return torch.tensor([x_traj[-1], y_traj[-1]])
-        
+                
         gt_x = x_traj
         gt_y = y_traj
                 
@@ -239,7 +236,10 @@ class ArgoverseDataset(Dataset):
         var_inp = np.array([x_inp[-1], y_inp[-1], psi_fut[-1]])
 #         var_inp = np.array([x_inp[-1], y_inp[-1], psi_fut[-1], x_fut[10], y_fut[10], x_fut[20], y_fut[20]])
 
-        return torch.tensor(traj_inp), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
+        if self.end_point:
+            return torch.tensor(traj_inp), torch.tensor([psi[-1], x_traj[-1], y_traj[-1]]), torch.tensor(fixed_params), torch.tensor(var_inp)
+        else:
+            return torch.tensor(traj_inp), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
         #if self.flatten:
         #    return torch.tensor(traj_inp).flatten(), torch.tensor(traj_out), torch.tensor(fixed_params), torch.tensor(var_inp)
         #else:

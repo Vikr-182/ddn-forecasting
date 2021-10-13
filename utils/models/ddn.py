@@ -1,8 +1,6 @@
 import os
 import sys
 # sys.path.append("/Users/shashanks./Downloads/Installations/ddn/")
-sys.path.append("./ddn/")
-sys.path.append("./")
 sys.path.append("../../")
 import warnings
 warnings.filterwarnings('ignore')
@@ -482,7 +480,7 @@ class TrajNetLSTMPredFinalHead(nn.Module):
         return out
 
 class TrajNetLSTMEP(nn.Module):
-    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 4, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
+    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 2, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
         super(TrajNetLSTMEP, self).__init__()
         self.nvar = nvar
         self.t_obs = t_obs
