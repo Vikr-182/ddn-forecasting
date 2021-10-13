@@ -6,6 +6,7 @@
 
 import os
 import sys
+from utils.models.ddn import TrajNetLSTMEP
 from tqdm import tqdm
 sys.path.append("./ddn")
 
@@ -304,8 +305,9 @@ name = "final_without" if include_centerline else "final_with"
 lr = 0.0005
 num_workers = 10
 batch_size = 512
+end_point = True
 
-train_dataset = ArgoverseDataset("/scratch/forecasting/val_data.npy", centerline_dir="/scratch/forecasting/val_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline)
+train_dataset = ArgoverseDataset("/scratch/forecasting/val_data.npy", centerline_dir="/scratch/forecasting/val_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline, end_point = end_point)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 #test_dataset = ArgoverseDataset("/scratch/forecasting/val_test_data.npy", centerline_dir="/scratch/forecasting/val_test_centerlines.npy", t_obs=20, dt=0.3, include_centerline = include_centerline)
@@ -336,8 +338,11 @@ opt_layer = DeclarativeLayer(problem)
 model_type = "LSTM"
 
 if model_type == "MLP":
-    Model = TrajNet
+    Model = TrajNetLSTM2
     model = Model(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2)
+elif model_type == "LSTMEP":
+    Model = TrajNetLSTMEP
+    model = Model(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2)    
 else:
     Model = TrajNetLSTM2
     model = Model(opt_layer, problem.P, problem.Pdot)

@@ -119,7 +119,7 @@ def rotate(gt_x, gt_y,theta):
     return gt_x, gt_y
 
 class ArgoverseDataset(Dataset):
-    def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False, flatten=True):
+    def __init__(self, data_path, t_obs=16, dt=0.125,centerline_dir=None, include_centerline = False, flatten=True, end_point = False):
         self.data = np.load(data_path, allow_pickle=True)
         self.data_path = data_path
         self.t_obs = t_obs
@@ -127,6 +127,7 @@ class ArgoverseDataset(Dataset):
         self.include_centerline = include_centerline
         self.centerline_dir = centerline_dir
         self.flatten = flatten
+        self.end_point = end_point
     
     def __len__(self):
         return len(self.data)
@@ -139,6 +140,9 @@ class ArgoverseDataset(Dataset):
         
         x_traj -= x_traj[0]
         y_traj -= y_traj[0]
+        
+        if self.end_point:
+            return torch.tensor([x_traj[-1], y_traj[-1]])
         
         gt_x = x_traj
         gt_y = y_traj
