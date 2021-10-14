@@ -78,7 +78,7 @@ train_dataset = ArgoverseDataset(train_dir, centerline_dir=centerline_train_dir,
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
 test_dataset = ArgoverseDataset(test_dir, centerline_dir=centerline_test_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten, end_point=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 offsets_train = np.load(val_offsets_dir)
 
@@ -93,10 +93,12 @@ else:
     model = Model(opt_layer, problem.P, problem.Pdot, device=device)
 # model = TrajNet(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2, output_size = num_waypoints * 2 + 2)
 #model = torch.nn.DataParallel(model, device_ids=[0])
+
 model = model.double()
 model = model.to(device)
+ddn = problem
 
-if args.model_path and args.test:
+if args.model_path:
     model.load_state_dict(torch.load(args.model_path))
 
 # model.load_state_dict(torch.load("./checkpoints/final.ckpt"))
@@ -107,53 +109,51 @@ optimizer = torch.optim.SGD(model.parameters(), lr = lr)
 # In[5]:
 
 
-epoch_train_loss = []
+# epoch_train_loss = []
 
-for epoch in range(num_epochs):
-    train_loss = []
-    mean_ade = []
-    mean_fde = []  
-    mean_head_loss = []   
-    for batch_num, data in enumerate(tqdm(train_loader)):
-        traj_inp, traj_out, fixed_params, var_inp = data
-        traj_inp = traj_inp.to(device)
-        traj_out = traj_out.to(device)
-        fixed_params = fixed_params.to(device)
-        var_inp = var_inp.to(device)
+# for epoch in range(num_epochs):
+#     train_loss = []
+#     mean_ade = []
+#     mean_fde = []  
+#     mean_head_loss = []   
+#     for batch_num, data in enumerate(tqdm(train_loader)):
+#         traj_inp, traj_out, fixed_params, var_inp = data
+#         traj_inp = traj_inp.to(device)
+#         traj_out = traj_out.to(device)
+#         fixed_params = fixed_params.to(device)
+#         var_inp = var_inp.to(device)
 
-        ade = []
-        fde = []
-        head_loss = []        
-#         out = model(traj_inp.float(), fixed_params.float(), var_inp.float())
-        out = model(traj_inp, fixed_params, var_inp)
-        loss = criterion(out, traj_out)
+#         ade = []
+#         fde = []
+#         head_loss = []        
+# #         out = model(traj_inp.float(), fixed_params.float(), var_inp.float())
+#         out = model(traj_inp, fixed_params, var_inp)
+#         loss = criterion(out, traj_out)
         
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
 
-        train_loss.append(loss.item())
-        for ii in range(traj_inp.size()[0]):
-            fde.append(np.linalg.norm( out[ii][1:].detach().numpy() - traj_out[ii][1:].detach().numpy()))
-            head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
-#            plot_trajj(ii, traj_inp[ii], traj_out[ii], out[ii], {"x": [], "y": []}, offsets=offsets_train, cities = [], avm=None, center=include_centerline, inp_len=t_obs * 2, c_len = t_obs * 2 + num_elems * 2, num=num, mode="test", batch_num=batch_num)
-        if batch_num % 10 == 0:
-            print("Epoch: {}, Batch: {}, Loss: {}".format(epoch, batch_num, loss.item()))
-            print("Head loss: {}".format(np.mean(head_loss)), "FDE: {}".format(np.mean(fde)))
+#         train_loss.append(loss.item())
+#         for ii in range(traj_inp.size()[0]):
+#             fde.append(np.linalg.norm( out[ii][1:].detach().numpy() - traj_out[ii][1:].detach().numpy()))
+#             head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
+# #            plot_trajj(ii, traj_inp[ii], traj_out[ii], out[ii], {"x": [], "y": []}, offsets=offsets_train, cities = [], avm=None, center=include_centerline, inp_len=t_obs * 2, c_len = t_obs * 2 + num_elems * 2, num=num, mode="test", batch_num=batch_num)
+#         if batch_num % 10 == 0:
+#             print("Epoch: {}, Batch: {}, Loss: {}".format(epoch, batch_num, loss.item()))
+#             print("Head loss: {}".format(np.mean(head_loss)), "FDE: {}".format(np.mean(fde)))
 
-        mean_fde.append(np.mean(fde))
-        mean_head_loss.append(np.mean(head_loss))
-    mean_loss = np.mean(train_loss)
-    epoch_train_loss.append(mean_loss)
-    torch.save(model.state_dict(), "./checkpoints/{}.ckpt".format(name))
-    print("Epoch: {}, Mean Loss: {}".format(epoch, mean_loss))
-    print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
-    print("-"*100)
+#         mean_fde.append(np.mean(fde))
+#         mean_head_loss.append(np.mean(head_loss))
+#     mean_loss = np.mean(train_loss)
+#     epoch_train_loss.append(mean_loss)
+#     torch.save(model.state_dict(), "./checkpoints/{}.ckpt".format(name))
+#     print("Epoch: {}, Mean Loss: {}".format(epoch, mean_loss))
+#     print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
+#     print("-"*100)
 
 
 # In[ ]:
-if args.test is False:
-    exit()
 
 with torch.no_grad():
     cnt = 0
@@ -161,6 +161,7 @@ with torch.no_grad():
     mean_ade = []
     mean_fde = []   
     mean_head_loss = []  
+    final_out = []
     for batch_num, data in enumerate(test_loader):
         traj_inp, traj_out, fixed_params, var_inp = data
         traj_inp = traj_inp.to(device)
@@ -173,8 +174,17 @@ with torch.no_grad():
         head_loss = []       
         
         out = model(traj_inp, fixed_params, var_inp)
+        var_inp = torch.tensor([out[1], out[2], out[0]])
+        primal_sol, _ = ddn.solve(fixed_params, var_inp)
+        c_x = y[:, :ddn.nvar]
+        c_y = y[:, ddn.nvar:2*ddn.nvar]
+        x = torch.matmul(ddn.P, c_x.T).T
+        y = torch.matmul(ddn.P, c_y.T).T
+        out = torch.concat([x, y])
         loss = criterion(out, traj_out)
         
+        final_out.append(out)
+                
         test_loss.append(loss.item())
         print("Batch: {}, Loss: {}".format(batch_num, loss.item()))
         
@@ -187,3 +197,4 @@ with torch.no_grad():
 mean_loss = np.mean(test_loss)
 print("Epoch Mean Test Loss: {}".format(mean_loss))
 print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
+torch.save(torch.tensor(final_out), 'final.pt')
