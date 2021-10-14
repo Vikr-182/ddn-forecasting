@@ -383,9 +383,7 @@ class TrajNetLSTMPredFinalHead(nn.Module):
     
     def forward(self, x, fixed_params, var_inp):
         batch_size = x.shape[0]
-        print(x.shape)
         out = self.activation(self.linear1(x))
-        print(out.shape)
         _, (hn, cn) = self.lstm(out)
         out = self.activation(self.linear2(hn[0]))
         variable_params = self.linear3(out)

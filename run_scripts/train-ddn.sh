@@ -3,7 +3,7 @@
 #SBATCH --time=1-72:00:00
 #SBATCH --mincpus=5
 #SBATCH --output /home2/vikrant.dewangan/_out/2_train_ddn.log
-#SBATCH -G 1 -c 9
+#SBATCH -G 3 -c 20
 #SBATCH -w gnode33
 #SBATCH --mail-type=ALL --mail-user=vikrant.dewangan@research.iiit.ac.in
 
@@ -29,5 +29,5 @@ echo "Done conda"
 echo "LALA" >> lala.txt
 #cd ~/forecasting/sengming/argo-forecasting-competition
 cd ~/forecasting/ddn-forecasting
-python3 script_train.py --train_dir /scratch/forecasting/train/data/ --test True --test_dir /scratch/forecasting/val/data/ --network LSTMPredHeading --lr 0.0001 --end_epoch 1000 
+python3 script_train.py --train_dir /scratch/forecasting/train/data/ --test True --test_dir /scratch/forecasting/val/data/ --network LSTMPredHeading --lr 0.0001 --end_epoch 50  --train_batch_size 2048 --num_workers 20
 echo "Done Training"

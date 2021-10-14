@@ -36,7 +36,8 @@ from utils.args_parser import *
 #import pytorch_lightning as pl
 
 use_cuda = torch.cuda.is_available()
-device = torch.device('cpu')
+#device = torch.device('cpu')
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 model_dict = {
     "MLP": TrajNet,
@@ -64,6 +65,7 @@ else:
 
 model = model.double()
 model = model.to(device)
+model = torch.nn.DataParallel(model, device_ids=[0])
 
 if args.model_path:
     model.load_state_dict(torch.load(args.model_path))

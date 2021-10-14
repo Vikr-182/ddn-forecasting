@@ -106,7 +106,7 @@ class OPTNode(AbstractDeclarativeNode):
 
         self.lamda_psi = self.lamda_psi - self.rho_psi * torch.matmul(self.A_psi.T, res_psi.T).T - self.rho_eq * torch.matmul(self.A_eq_psi.T, res_eq_psi.T).T
 
-        return sol_psi, np.linalg.norm(res_psi), np.linalg.norm(res_eq_psi), psi
+        return sol_psi, torch.linalg.norm(res_psi), torch.linalg.norm(res_eq_psi), psi
 
     
     def solve(self, fixed_params, variable_params):
@@ -147,8 +147,8 @@ class OPTNode(AbstractDeclarativeNode):
             res_eq_y = torch.matmul(self.A_eq, c_y.T).T - b_eq_y
             res_nonhol_y = ydot - v * torch.sin(psi)
 
-            res_eq_arr.append(np.linalg.norm(np.sqrt(res_eq_x**2 + res_eq_y**2)))
-            res_nonhol_arr.append(np.linalg.norm(np.sqrt(res_nonhol_x**2 + res_nonhol_y**2)))
+            res_eq_arr.append(torch.linalg.norm(torch.sqrt(res_eq_x**2 + res_eq_y**2)))
+            res_nonhol_arr.append(torch.linalg.norm(torch.sqrt(res_nonhol_x**2 + res_nonhol_y**2)))
             
             self.lamda_x = self.lamda_x - self.rho_eq * torch.matmul(self.A_eq.T, res_eq_x.T).T - self.rho_nonhol * torch.matmul(self.A_nonhol.T, res_nonhol_x.T).T
             self.lamda_y = self.lamda_y - self.rho_eq * torch.matmul(self.A_eq.T, res_eq_y.T).T - self.rho_nonhol * torch.matmul(self.A_nonhol.T, res_nonhol_y.T).T
