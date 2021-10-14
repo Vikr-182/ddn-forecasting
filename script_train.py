@@ -29,7 +29,7 @@ from utils.dataloader import ArgoverseDataset
 from utils.models.ddn import *
 
 from utils.bernstein import bernstein_coeff_order10_new
-from utils.viz_helpers import plot_traj, plot_trajj
+from utils.viz_helpers import vis_trajectories
 from utils.metrics import get_ade, get_fde
 from utils.args_parser import *
 
@@ -48,68 +48,35 @@ model_dict = {
 }
 
 args = parse_arguments()
-network_type = args.network
-Model = model_dict[network_type]
-num = args.pred_len
-t_obs = args.obs_len
-num_elems = args.num_elems
-include_centerline = args.include_centerline
-name = "final_without_ok" if include_centerline else "final_with"
-lr = args.lr
-shuffle = args.shuffle
-num_waypoints = args.num_waypoints
-flatten = args.flatten
-num_epochs = args.end_epoch
-batch_size = args.train_batch_size
-num_workers = 10
-saved_model = args.model_path
-
-train_dir = args.train_dir
-centerline_train_dir = args.train_centerlines_dir
-if args.test:
-    test_dir = args.test_dir
-    centerline_test_dir = args.test_centerlines_dir
-else:
-    test_dir = args.train_dir
-val_offsets_dir = args.val_offsets_dir
+Model = model_dict[args.network]
 
 # In[2]:
-train_dataset = ArgoverseDataset(train_dir, centerline_dir=centerline_train_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten, end_point=True)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+train_dataset = ArgoverseDataset(args.train_dir, t_obs=args.obs_len, dt=0.3, include_centerline=args.include_centerline, flatten=args.flatten, end_point=args.end_point)
+train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, num_workers=args.num_workers)
 
-test_dataset = ArgoverseDataset(test_dir, centerline_dir=centerline_test_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten, end_point=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-
-offsets_train = np.load(val_offsets_dir)
-
-problem = OPTNode(rho_eq=10, t_fin=9.0, num=num, bernstein_coeff_order10_new=bernstein_coeff_order10_new, device = device)
+problem = OPTNode(rho_eq=10, t_fin=9.0, num=args.pred_len, bernstein_coeff_order10_new=bernstein_coeff_order10_new, device = device)
 opt_layer = DeclarativeLayer(problem)
 
-# model = TrajNetLSTM(opt_layer, problem.P, problem.Pdot)#, input_size=t_obs * 2 + include_centerline * num_elems * 2)
-# model = TrajNet(opt_layer, problem.P, problem.Pdot)#, input_size=t_obs * 2 + include_centerline * num_elems * 2)
-if flatten:
-    model = Model(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2, device=device)
+if args.flatten:
+    model = Model(opt_layer, problem.P, problem.Pdot, input_size=args.obs_len * 2 + args.include_centerline * args.num_elems * 2, device=device)
 else:
-    model = Model(opt_layer, problem.P, problem.Pdot, device=device)
-# model = TrajNet(opt_layer, problem.P, problem.Pdot, input_size=t_obs * 2 + include_centerline * num_elems * 2, output_size = num_waypoints * 2 + 2)
-#model = torch.nn.DataParallel(model, device_ids=[0])
+    model = Model(opt_layer, problem.P, problem.Pdot)
+
 model = model.double()
 model = model.to(device)
+model = torch.nn.DataParallel(model)
 
-if args.model_path and args.test:
+if args.model_path:
     model.load_state_dict(torch.load(args.model_path))
 
-# model.load_state_dict(torch.load("./checkpoints/final.ckpt"))
-
 criterion = nn.MSELoss()
-optimizer = torch.optim.SGD(model.parameters(), lr = lr)
+optimizer = torch.optim.SGD(model.parameters(), lr = args.lr)
 
 # In[5]:
 
-
 epoch_train_loss = []
 
-for epoch in range(num_epochs):
+for epoch in range(args.end_epoch):
     train_loss = []
     mean_ade = []
     mean_fde = []  
@@ -134,27 +101,41 @@ for epoch in range(num_epochs):
 
         train_loss.append(loss.item())
         for ii in range(traj_inp.size()[0]):
-            fde.append(np.linalg.norm( out[ii][1:].detach().numpy() - traj_out[ii][1:].detach().numpy()))
-            head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
-#            plot_trajj(ii, traj_inp[ii], traj_out[ii], out[ii], {"x": [], "y": []}, offsets=offsets_train, cities = [], avm=None, center=include_centerline, inp_len=t_obs * 2, c_len = t_obs * 2 + num_elems * 2, num=num, mode="test", batch_num=batch_num)
+            if args.end_point:
+                fde.append(np.linalg.norm( out[ii][1:].detach().numpy() - traj_out[ii][1:].detach().numpy()))
+                head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
+            else:  
+                gt = [[out[ii][j].item(),out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]
+                pred = [[traj_out[ii][j].item(),traj_out[ii][j + args.end_epoch].item()] for j in range(len(out[ii])//2)]                
+                fde.append(get_fde(np.array(pred), np.array(gt)))                                        
+                ade.append(get_ade(np.array(pred), np.array(gt)))
         if batch_num % 10 == 0:
             print("Epoch: {}, Batch: {}, Loss: {}".format(epoch, batch_num, loss.item()))
-            print("Head loss: {}".format(np.mean(head_loss)), "FDE: {}".format(np.mean(fde)))
-
+            if args.end_point:
+                print("Head loss: {}".format(np.mean(head_loss)), "FDE: {}".format(np.mean(fde)))
+            else:
+                print("ADE: {}".format(np.mean(ade)), "FDE: {}".format(np.mean(fde)))
+        mean_ade.append(np.mean(ade))
         mean_fde.append(np.mean(fde))
         mean_head_loss.append(np.mean(head_loss))
     mean_loss = np.mean(train_loss)
     epoch_train_loss.append(mean_loss)
-    torch.save(model.state_dict(), "./checkpoints/{}.ckpt".format(name))
+    torch.save(model.state_dict(), "./checkpoints/final.ckpt")
     print("Epoch: {}, Mean Loss: {}".format(epoch, mean_loss))
-    print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
+    if args.end_point:
+        print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
+    else:
+        print("Mean ADE: {}".format(np.mean(mean_ade)), "Mean FDE: {}".format(np.mean(mean_fde)))
     print("-"*100)
-
 
 # In[ ]:
 if args.test is False:
     exit()
 
+test_dataset = ArgoverseDataset(args.test_dir, t_obs=args.obs_len, dt=0.3, include_centerline=args.include_centerline, flatten=args.flatten, end_point=args.end_point)
+test_loader = DataLoader(test_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, num_workers=args.num_workers)
+
+predictions = np.empty((1,args.pred_len, 2))
 with torch.no_grad():
     cnt = 0
     test_loss = []
@@ -170,20 +151,35 @@ with torch.no_grad():
         
         ade = []
         fde = []
-        head_loss = []       
+        head_loss = []
         
         out = model(traj_inp, fixed_params, var_inp)
+        x_out = out[:, :args.pred_len]
+        y_out = out[:, args.pred_len:]
+        predictions = np.append(predictions, np.dstack((x_out, y_out)),0)
         loss = criterion(out, traj_out)
         
         test_loss.append(loss.item())
         print("Batch: {}, Loss: {}".format(batch_num, loss.item()))
-        
+ 
         for ii in range(traj_inp.size()[0]):
-            fde.append(np.linalg.norm( out[ii][1:] - traj_out[ii][1:]))
-            head_loss.append(np.linalg.norm(out[ii][0] - traj_out[ii][0]))
-
+            if args.end_point:
+                fde.append(np.linalg.norm( out[ii][1:] - traj_out[ii][1:]))
+                head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
+            else:  
+                gt = [[out[ii][j].item(),out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]
+                pred = [[traj_out[ii][j].item(),traj_out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]                
+                fde.append(get_fde(np.array(pred), np.array(gt)))
+                ade.append(get_ade(np.array(pred), np.array(gt)))            
+        mean_ade.append(np.mean(ade))
         mean_fde.append(np.mean(fde))  
         mean_head_loss.append(np.mean(head_loss))
 mean_loss = np.mean(test_loss)
+predictions = predictions[1:]
+np.save("predictions.npy", predictions)
 print("Epoch Mean Test Loss: {}".format(mean_loss))
-print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
+if args.end_point:
+    print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
+else:
+    print("Mean ADE: {}".format(np.mean(mean_ade)), "Mean FDE: {}".format(np.mean(mean_fde)))
+vis_trajectories(args.test_dir, args.traj_save_path, pred=True, pred_array=predictions)

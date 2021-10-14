@@ -10,6 +10,11 @@ def parse_arguments():
             required=False,
             type=str,
             help="path to the saved model")
+    parser.add_argument("--end_point",
+            required=False,
+            type=bool,
+            default=False,
+            help="whether predicting only end point")
     parser.add_argument("--obs_len",
             default=20,
             type=int,
@@ -82,8 +87,10 @@ def parse_arguments():
             action="store_true",
             help="Include centerline")
     parser.add_argument("--test",
-            action="store_false",
-            help="If true, only run the inference")
+            required=False,
+            type=bool,
+            default=False,
+            help="test mode")
     parser.add_argument("--num",
             type=int,
             default=30,
@@ -96,6 +103,10 @@ def parse_arguments():
             type=int,
             default=10,
             help="Last epoch")
+    parser.add_argument("--num_workers",
+            default=10,
+            type=int,
+            help="number of workers")    
     parser.add_argument("--num_waypoints",
             type=int,
             default=2,
@@ -113,6 +124,6 @@ def parse_arguments():
             default="./results/",
             type=str,
             help=
-            "path to the pickle file where forecasted trajectories will be saved.",
+            "path to the results where forecasted trajectories will be saved.",
             )
     return parser.parse_args()

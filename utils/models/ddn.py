@@ -305,17 +305,10 @@ class TrajNetLSTMSimpler(nn.Module):
 #         batch_size, _ = x.size()
         batch_size, _, __ = x.size()
         out = self.activation(self.linear1(x))
-        #hidden_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #cell_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #torch.nn.init.xavier_normal_(hidden_state)
-        #torch.nn.init.xavier_normal_(cell_state)
         out, (hidden_state, cell_state) = self.encoderlstm(out)
         
 #         # out of shape (b, 20, 2) -> (b, 30, 2)
         variable_params = self.linear2(hidden_state[0])
-        #variable_params = torch.cat((out[:, -1],pad_zeros), dim=1)
-        
-#         variable_params = self.activation(self.linear(out.reshape(out2.shape[0], -1)))
 
         # Run optimization
         #print(self.mask,  var_inp)#+ (1-self.mask) * variable_params
@@ -331,153 +324,9 @@ class TrajNetLSTMSimpler(nn.Module):
         out = torch.cat([x_pred, y_pred], dim=1)
         return out    
 
-class TrajNetLSTMPredFinalHead(nn.Module):
-    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 4, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
-        super(TrajNetLSTMSimpler, self).__init__()
-        self.nvar = nvar
-        self.t_obs = t_obs
-        self.P = torch.tensor(P, dtype=torch.double).to(device)
-        self.Pdot = torch.tensor(Pdot, dtype=torch.double).to(device)
-        self.linear1 = nn.Linear(input_size, embedding_size)
-        #self.linear2 = nn.Linear(hidden_size, output_size)
-        self.linear2 = nn.Linear(embedding_size, output_size + 1)
-        #self.linear3 = nn.Linear(hidden_size, output_size + 1)
-        self.encoderlstm = nn.LSTM(input_size = embedding_size, hidden_size = embedding_size, batch_first=True)
-        #self.decoderlstm = nn.LSTM(hidden_size, output_size, num_layers, batch_first=True)
-        self.embedding_size = embedding_size
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.output_size = output_size
-        self.num_layers = num_layers
-        self.opt_layer = opt_layer
-        self.activation = nn.ReLU()
-        self.dtype=torch.float64        
-        #self.mask = torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.double).to(device)
-    
-    def forward(self, x, fixed_params, var_inp):
-#         batch_size, _ = x.size()
-        batch_size, _, __ = x.size()
-        out = self.activation(self.linear1(x))
-        #hidden_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #cell_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #torch.nn.init.xavier_normal_(hidden_state)
-        #torch.nn.init.xavier_normal_(cell_state)
-        out, (hidden_state, cell_state) = self.encoderlstm(out)
-        
-#         # out of shape (b, 20, 2) -> (b, 30, 2)
-        ftp = self.linear2(hidden_state[0])
-        variable_params = self.mask * var_inp + (1-self.mask) * variable_params
-        variable_params = torch.tensor([ftp[:, 2], final_two_points[:, 3], 
-                                        torch.atan2(torch.sin(ftp[:, 2]-ftp[:, 0]), torch.cos(ftp[:, 3]-ftp[:, 1]))])
-        sol = self.opt_layer(fixed_params, variable_params)
-         
-        # Compute final trajectory
-        x_pred = torch.matmul(self.P, sol[:, :self.nvar].transpose(0, 1))
-        y_pred = torch.matmul(self.P, sol[:, self.nvar:2*self.nvar].transpose(0, 1))
-        x_pred = x_pred.transpose(0, 1)
-        y_pred = y_pred.transpose(0, 1)
-        out = torch.cat([x_pred, y_pred], dim=1)
-        return out
 
-class TrajNetLSTMPredFinalHead(nn.Module):
-    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 4, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
-        super(TrajNetLSTMPredFinalHead, self).__init__()
-        self.nvar = nvar
-        self.t_obs = t_obs
-        self.P = torch.tensor(P, dtype=torch.double).to(device)
-        self.Pdot = torch.tensor(Pdot, dtype=torch.double).to(device)
-        self.linear1 = nn.Linear(input_size, embedding_size)
-        #self.linear2 = nn.Linear(hidden_size, output_size)
-        self.linear2 = nn.Linear(embedding_size, output_size + 1)
-        #self.linear3 = nn.Linear(hidden_size, output_size + 1)
-        self.encoderlstm = nn.LSTM(input_size = embedding_size, hidden_size = embedding_size, batch_first=True)
-        #self.decoderlstm = nn.LSTM(hidden_size, output_size, num_layers, batch_first=True)
-        self.embedding_size = embedding_size
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.output_size = output_size
-        self.num_layers = num_layers
-        self.opt_layer = opt_layer
-        self.activation = nn.ReLU()
-        self.dtype=torch.float64
-#         self.mask = torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.double).to(device)
 
-    def forward(self, x, fixed_params, var_inp):
-#         batch_size, _ = x.size()
-        batch_size, _,_ = x.size()
-        out = self.activation(self.linear1(x))
-        #hidden_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #cell_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #torch.nn.init.xavier_normal_(hidden_state)
-        #torch.nn.init.xavier_normal_(cell_state)
-        out, (hidden_state, cell_state) = self.encoderlstm(out)
 
-#         # out of shape (b, 20, 2) -> (b, 30, 2)
-        ftp = self.linear2(hidden_state[0])
-#         variable_params = self.mask * var_inp + (1-self.mask) * variable_params
-        print(ftp.shape)
-        variable_params = torch.tensor([ftp[:, 2], ftp[:, 3],
-                                        torch.atan2(torch.sin(ftp[:, 2]-ftp[:, 0]), torch.cos(ftp[:, 3]-ftp[:, 1]))])
-        print(variable_params.shape)
-        variable_params=variable_params.transpose(0, 1)
-        print(variable_params.shape)
-        sol = self.opt_layer(fixed_params, variable_params)
-
-        # Compute final trajectory
-        x_pred = torch.matmul(self.P, sol[:, :self.nvar].transpose(0, 1))
-        y_pred = torch.matmul(self.P, sol[:, self.nvar:2*self.nvar].transpose(0, 1))
-        x_pred = x_pred.transpose(0, 1)
-        y_pred = y_pred.transpose(0, 1)
-        out = torch.cat([x_pred, y_pred], dim=1)
-        return out
-    
-class TrajNetLSTMPredFinalHead(nn.Module):
-    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 4, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
-        super(TrajNetLSTMSimpler, self).__init__()
-        self.nvar = nvar
-        self.t_obs = t_obs
-        self.P = torch.tensor(P, dtype=torch.double).to(device)
-        self.Pdot = torch.tensor(Pdot, dtype=torch.double).to(device)
-        self.linear1 = nn.Linear(input_size, embedding_size)
-        #self.linear2 = nn.Linear(hidden_size, output_size)
-        self.linear2 = nn.Linear(embedding_size, output_size + 1)
-        #self.linear3 = nn.Linear(hidden_size, output_size + 1)
-        self.encoderlstm = nn.LSTM(input_size = embedding_size, hidden_size = embedding_size, batch_first=True)
-        #self.decoderlstm = nn.LSTM(hidden_size, output_size, num_layers, batch_first=True)
-        self.embedding_size = embedding_size
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.output_size = output_size
-        self.num_layers = num_layers
-        self.opt_layer = opt_layer
-        self.activation = nn.ReLU()
-        self.dtype=torch.float64        
-        #self.mask = torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.double).to(device)
-    
-    def forward(self, x, fixed_params, var_inp):
-#         batch_size, _ = x.size()
-        batch_size, _, __ = x.size()
-        out = self.activation(self.linear1(x))
-        #hidden_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #cell_state = torch.zeros(self.num_layers, out.size(0), self.hidden_size, dtype=self.dtype)
-        #torch.nn.init.xavier_normal_(hidden_state)
-        #torch.nn.init.xavier_normal_(cell_state)
-        out, (hidden_state, cell_state) = self.encoderlstm(out)
-        
-#         # out of shape (b, 20, 2) -> (b, 30, 2)
-        ftp = self.linear2(hidden_state[0])
-        variable_params = self.mask * var_inp + (1-self.mask) * variable_params
-        variable_params = torch.tensor([ftp[:, 2], final_two_points[:, 3], 
-                                        torch.atan2(torch.sin(ftp[:, 2]-ftp[:, 0]), torch.cos(ftp[:, 3]-ftp[:, 1]))])
-        sol = self.opt_layer(fixed_params, variable_params)
-         
-        # Compute final trajectory
-        x_pred = torch.matmul(self.P, sol[:, :self.nvar].transpose(0, 1))
-        y_pred = torch.matmul(self.P, sol[:, self.nvar:2*self.nvar].transpose(0, 1))
-        x_pred = x_pred.transpose(0, 1)
-        y_pred = y_pred.transpose(0, 1)
-        out = torch.cat([x_pred, y_pred], dim=1)
-        return out
 
 class TrajNetLSTMEP(nn.Module):
     def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=16, embedding_size = 64, output_size = 2, nvar=11, t_obs=8, num_layers = 1, device="cpu"):
@@ -515,3 +364,43 @@ class TrajNetLSTMEP(nn.Module):
 #         # out of shape (b, 20, 2) -> (b, 30, 2)
         ftp = self.linear2(hidden_state[0])
         return ftp
+
+
+class TrajNetLSTMPredFinalHead(nn.Module):
+    def __init__(self, opt_layer, P, Pdot, input_size=2, hidden_size=64, output_size=3, nvar=11, t_obs=8, device="cpu"):
+        super(TrajNetLSTMPredFinalHead, self).__init__()
+        self.nvar = nvar
+        self.t_obs = t_obs
+        self.P = torch.tensor(P, dtype=torch.double).to(device)
+        self.Pdot = torch.tensor(Pdot, dtype=torch.double).to(device) 
+        self.linear1 = nn.Linear(input_size, hidden_size)
+        self.lstm = nn.LSTM(input_size=hidden_size, hidden_size=hidden_size, batch_first=True)
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
+        self.linear3 = nn.Linear(hidden_size, output_size + 1)
+        self.opt_layer = opt_layer
+        self.activation = nn.PReLU()
+        self.mask = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.double).to(device)
+    
+    def forward(self, x, fixed_params, var_inp):
+        batch_size = x.shape[0]
+        print(x.shape)
+        out = self.activation(self.linear1(x))
+        print(out.shape)
+        _, (hn, cn) = self.lstm(out)
+        out = self.activation(self.linear2(hn[0]))
+        variable_params = self.linear3(out)
+        theta = torch.atan2(variable_params[:, 3] - variable_params[:, 1], variable_params[:, 2] - variable_params[:, 0])
+        variable_params = torch.cat((variable_params[:,:2], theta.reshape(theta.shape[0], 1)), dim=1)
+        
+#         variable_params = self.mask * var_inp + (1-self.mask) * variable_params
+        
+        # Run optimization
+        sol = self.opt_layer(fixed_params, variable_params)
+         
+        # Compute final trajectory
+        x_pred = torch.matmul(self.P, sol[:, :self.nvar].transpose(0, 1))
+        y_pred = torch.matmul(self.P, sol[:, self.nvar:2*self.nvar].transpose(0, 1))
+        x_pred = x_pred.transpose(0, 1)
+        y_pred = y_pred.transpose(0, 1)
+        out = torch.cat([x_pred, y_pred], dim=1)
+        return out

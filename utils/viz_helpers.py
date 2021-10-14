@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import gc
+from tqdm import tqdm
 import logging
 import os
 import glob
@@ -30,6 +31,69 @@ avm = ArgoverseMap()
 
 num = 10
 
+def denoise(gt_x, gt_y, w = 7):
+    # denoising
+    w = w
+    gt_x_t = []
+    gt_y_t = []
+    for iq in range(len(gt_x)):
+        if iq >= w and iq + w <= len(gt_x):
+            gt_x_t.append(np.mean(gt_x[iq: iq + w]))
+            gt_y_t.append(np.mean(gt_y[iq: iq + w]))
+        elif iq < w:
+            okx = np.mean(gt_x[w: w + w])
+            gt_x_t.append(gt_x[0] + (okx - gt_x[0]) * (iq) / w)
+            oky = np.mean(gt_y[w: w + w])
+            gt_y_t.append(gt_y[0] + (oky - gt_y[0]) * (iq) / w)
+        else:
+            okx = np.mean(gt_x[len(gt_x) - w:len(gt_x) - w  + w])
+            oky = np.mean(gt_y[len(gt_x) - w: len(gt_x) - w + w])
+            gt_x_t.append(okx + (gt_x[-1] - okx) * (w - (len(gt_x) - iq)) / w)
+            gt_y_t.append(oky + (gt_y[-1] - oky) * (w - (len(gt_y) - iq)) / w)                   
+
+    gt_x = gt_x_t
+    gt_y = gt_y_t
+    return gt_x, gt_y
+
+def rotate(gt_x, gt_y,theta):
+    gt_x_x = [ (gt_x[k] * np.cos(theta) - gt_y[k] * np.sin(theta))  for k in range(len(gt_x))]
+    gt_y_y = [ (gt_x[k] * np.sin(theta) + gt_y[k] * np.cos(theta))  for k in range(len(gt_x))]
+    gt_x = gt_x_x
+    gt_y = gt_y_y
+    return gt_x, gt_y
+
+def transform(x_traj, y_traj, dt = 0.3, t_obs = 20, theta=None, offsets=None):
+    if offsets == None:
+        x_traj -= x_traj[0]
+        y_traj -= y_traj[0]
+    else:
+        x_traj -= offsets[0]
+        y_traj -= offsets[1]
+        
+    gt_x = x_traj
+    gt_y = y_traj
+    
+    gt_x, gt_y = denoise(gt_x, gt_y)
+    v_x = [ (gt_x[k + 1] - gt_x[k])/dt  for k in range(len(gt_x) - 1)]
+    v_y = [ (gt_y[k + 1] - gt_y[k])/dt  for k in range(len(gt_y) - 1)]
+    psi = [ np.arctan2(v_y[k], v_x[k]) for k in range(len(v_x))]  
+
+    # till here, gt-> (50, 1), v -> (49, 1), psi -> (31, 1)
+
+    # obtain this -psi
+    if theta == None:
+        theta = -psi[t_obs - 1]
+
+    # rotate by theta
+    gt_x, gt_y = rotate(gt_x, gt_y, theta)
+    v_x = [ (gt_x[k + 1] - gt_x[k])/dt  for k in range(len(gt_x) - 1)]
+    v_y = [ (gt_y[k + 1] - gt_y[k])/dt  for k in range(len(gt_y) - 1)]
+    psi = [ np.arctan2(v_y[k], v_x[k]) for k in range(len(v_x))]
+    psidot = [ (psi[k + 1] - psi[k])/dt for k in range(len(psi) - 1) ]
+    psi_traj = [i.item() for i in psi]
+    psidot_traj = [i.item() for i in psidot]
+    
+    return gt_x, gt_y, v_x, v_y, psi, psidot, psi_traj, psidot_traj, theta
 
 def plot_traj(cnt, traj_inp, traj_out, traj_pred, obs, batch_num=0, num = 30, offsets = [], cities = [], avm = None, center = True, mode = "train", inp_len=40, c_len=70):
     traj_inp = traj_inp.numpy()
@@ -141,7 +205,8 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
         batch_size: batch_size
     '''
     paths = glob.glob(os.path.join(data_path, "*.csv"))
-    for idx in range(len(paths)):
+    print("visualizing")
+    for idx in tqdm(range(len(paths))):
         path = paths[idx]
         df = pd.read_csv(path)
         agent_df = df[df['OBJECT_TYPE'] == 'AGENT']
@@ -157,16 +222,14 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
 #         x_traj, y_traj, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta_agent = transform(x_traj, y_traj)
         plt.figure(figsize=(15,15))
 
-        plt.plot(x_traj[:t_obs], y_traj[:t_obs], color='blue', label='observed')
-        plt.scatter(x_traj[t_obs], y_traj[t_obs], color='blue', label='end observed')
-        plt.plot(x_traj[t_obs:], y_traj[t_obs:], color='orange', label='gt')
-        plt.scatter(x_traj[-1], y_traj[-1], color='orange', label='gt end point')
+        plt.plot(x_traj[:t_obs + 1], y_traj[:t_obs + 1], color='blue', label='observed')
+        plt.scatter(x_traj[t_obs + 1], y_traj[t_obs + 1], color='blue', label='end observed')
+        plt.plot(x_traj[t_obs:], y_traj[t_obs:], color='green', label='gt')
+        plt.scatter(x_traj[-1], y_traj[-1], color='green', label='gt end point')
         if pred:
-            i1 = idx//batch_size
-            i2 = idx % batch_size
-            x_traj, y_traj, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta_agent = transform(x_traj, y_traj)
-            pred_x = pred_array[i1, i2, :, 0]
-            pred_y = pred_array[i1, i2, :, 1]
+            x_traj, y_traj, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta = transform(x_traj, y_traj)
+            pred_x = pred_array[idx][ :, 0]
+            pred_y = pred_array[idx][ :, 1]
             pred_x, pred_y = rotate(pred_x, pred_y, -theta)
             pred_x += offsets[0]
             pred_y += offsets[1]
@@ -183,7 +246,6 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
         for other in others_dfs:
             x_traj = other['X'].values
             y_traj = other['Y'].values
-#             x_traj, y_traj, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta_others = transform(x_traj, y_traj, theta = theta_agent, offsets = offsets)
             plt.plot(x_traj, y_traj, color='grey')
             plt.scatter(x_traj[-1], y_traj[-1], color='grey')
 
@@ -197,9 +259,6 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
         x_max, y_max = np.max(gt_x) + 30, np.max(gt_y) + 30
         x_min, y_min = np.min(gt_x) - 30, np.min(gt_y) - 30
 
-        print(x_max, x_min)
-        print(y_max, y_min)
-
         avm = ArgoverseMap()
         seq_lane_props = avm.city_lane_centerlines_dict[city]
         for lane_id, lane_props in seq_lane_props.items():
@@ -212,7 +271,6 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
 
         plt.legend()
         plt.axis('equal')
-        plt.show()
         plt.savefig(output_dir + str(idx) + ".png")
         plt.clf()
 
