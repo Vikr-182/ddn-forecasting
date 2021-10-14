@@ -33,7 +33,7 @@ from utils.viz_helpers import vis_trajectories
 from utils.metrics import get_ade, get_fde
 from utils.args_parser import *
 
-import pytorch_lightning as pl
+#import pytorch_lightning as pl
 
 use_cuda = torch.cuda.is_available()
 device = torch.device('cpu')
