@@ -10,6 +10,7 @@ sys.path.append("./")
 import warnings
 warnings.filterwarnings('ignore')
 
+from tqdm import tqdm
 import torch
 import argparse
 import numpy as np
@@ -24,7 +25,7 @@ from ddn.ddn.pytorch.node import AbstractDeclarativeNode
 
 # from utils.nodes.OPTNode_waypoint import OPTNode_waypoint
 from utils.nodes.OPTNode import OPTNode
-from utils.dataloader import ArgoverseDataset
+from utils.dataloader import ArgoverseDataset_Old
 
 from utils.models.ddn import *
 
@@ -74,12 +75,8 @@ else:
 val_offsets_dir = args.val_offsets_dir
 
 # In[2]:
-train_dataset = ArgoverseDataset(train_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten, end_point=False)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-
-test_dataset = ArgoverseDataset(test_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten, end_point=False)
+test_dataset = ArgoverseDataset_Old(test_dir, t_obs=t_obs, dt=0.3, include_centerline = include_centerline, flatten = flatten, end_point=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
 
 problem = OPTNode(rho_eq=10, t_fin=9.0, num=num, bernstein_coeff_order10_new=bernstein_coeff_order10_new, device = device)
 opt_layer = DeclarativeLayer(problem)
@@ -117,7 +114,7 @@ with torch.no_grad():
     mean_head_loss = []  
     final_out = []
     predictions = np.empty((1,30,2))
-    for batch_num, data in enumerate(test_loader):
+    for batch_num, data in enumerate(tqdm(test_loader)):
         traj_inp, traj_out, fixed_params, var_inp = data
         traj_inp = traj_inp.to(device)
         traj_out = traj_out.to(device)
@@ -129,21 +126,25 @@ with torch.no_grad():
         head_loss = []       
         
         out = model(traj_inp, fixed_params, var_inp)
-        var_inp = torch.tensor([out[:, 1], out[:, 2], out[:, 0]])
+        var_inp = torch.cat((out[:, 1].reshape(20, 1), out[:, 2].reshape(20, 1), out[:, 0].reshape(20, 1)), dim=1)
         primal_sol, _ = ddn.solve(fixed_params, var_inp)
-        c_x = y[:, :ddn.nvar]
-        c_y = y[:, ddn.nvar:2*ddn.nvar]
+        c_x = primal_sol[:, :ddn.nvar]
+        c_y = primal_sol[:, ddn.nvar:2*ddn.nvar]
         x = torch.matmul(ddn.P, c_x.T).T
         y = torch.matmul(ddn.P, c_y.T).T
-        out = torch.concat([x, y])
-        predictions = np.concatenate((predictions, np.dstack((x.detach().numpy(), y.detach().numpy()))), 0)
+        out = torch.cat((x, y), dim=1)
+        print(out.shape)
+        print(traj_out.shape)
         loss = criterion(out, traj_out)
- 
+        out = torch.dstack((x, y))
+        print(out.shape)
+        predictions = np.concatenate((predictions, out.detach().numpy()), 0)
+        print(predictions.shape)
         final_out.append(out)
-                
+
         test_loss.append(loss.item())
         print("Batch: {}, Loss: {}".format(batch_num, loss.item()))
-        
+        out = torch.cat((x, y), dim=1)
         for ii in range(traj_inp.size()[0]):
             fde.append(np.linalg.norm( out[ii][1:] - traj_out[ii][1:]))
             head_loss.append(np.linalg.norm(out[ii][0] - traj_out[ii][0]))
@@ -151,7 +152,9 @@ with torch.no_grad():
         mean_fde.append(np.mean(fde))  
         mean_head_loss.append(np.mean(head_loss))
 mean_loss = np.mean(test_loss)
+predictions = predictions[1:]
 print("Epoch Mean Test Loss: {}".format(mean_loss))
 print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
 np.save("predictions.npy", predictions)
+
 torch.save(torch.tensor(final_out), 'final.pt')
