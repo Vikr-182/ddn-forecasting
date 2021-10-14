@@ -60,11 +60,10 @@ opt_layer = DeclarativeLayer(problem)
 if args.flatten:
     model = Model(opt_layer, problem.P, problem.Pdot, input_size=args.obs_len * 2 + args.include_centerline * args.num_elems * 2, device=device)
 else:
-    model = Model(opt_layer, problem.P, problem.Pdot)
+    model = Model(opt_layer, problem.P, problem.Pdot, device=device)
 
 model = model.double()
 model = model.to(device)
-model = torch.nn.DataParallel(model)
 
 if args.model_path:
     model.load_state_dict(torch.load(args.model_path))
@@ -106,7 +105,7 @@ for epoch in range(args.end_epoch):
                 head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
             else:  
                 gt = [[out[ii][j].item(),out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]
-                pred = [[traj_out[ii][j].item(),traj_out[ii][j + args.end_epoch].item()] for j in range(len(out[ii])//2)]                
+                pred = [[traj_out[ii][j].item(),traj_out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)] 
                 fde.append(get_fde(np.array(pred), np.array(gt)))                                        
                 ade.append(get_ade(np.array(pred), np.array(gt)))
         if batch_num % 10 == 0:
@@ -168,7 +167,7 @@ with torch.no_grad():
                 head_loss.append(np.linalg.norm(out[ii][0].detach().numpy() - traj_out[ii][0].detach().numpy()))
             else:  
                 gt = [[out[ii][j].item(),out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]
-                pred = [[traj_out[ii][j].item(),traj_out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]                
+                pred = [[traj_out[ii][j].item(),traj_out[ii][j + args.pred_len].item()] for j in range(len(out[ii])//2)]
                 fde.append(get_fde(np.array(pred), np.array(gt)))
                 ade.append(get_ade(np.array(pred), np.array(gt)))            
         mean_ade.append(np.mean(ade))
