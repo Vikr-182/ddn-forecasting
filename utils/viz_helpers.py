@@ -192,7 +192,7 @@ def plot_trajj(cnt, traj_inp, traj_out, traj_pred, obs, batch_num=0, num = 30, o
     plt.close()
 
 
-def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=False, pred_array=None, batch_size = 512):
+def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=False, pred_array=None, batch_size = 512, sequences = []):
     '''
 
     params:
@@ -206,6 +206,7 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
     '''
     paths = glob.glob(os.path.join(data_path, "*.csv"))
     print("visualizing")
+    ade = []
     for idx in tqdm(range(len(paths))):
         path = paths[idx]
         df = pd.read_csv(path)
@@ -220,22 +221,32 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
         y_traj = agent_df['Y'].values
         offsets = [x_traj[0], y_traj[0]] # offsets for other agents
 #         x_traj, y_traj, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta_agent = transform(x_traj, y_traj)
-        plt.figure(figsize=(15,15))
+        #plt.figure(figsize=(15,15))
 
-        plt.plot(x_traj[:t_obs + 1], y_traj[:t_obs + 1], color='blue', label='observed')
-        plt.scatter(x_traj[t_obs + 1], y_traj[t_obs + 1], color='blue', label='end observed')
-        plt.plot(x_traj[t_obs:], y_traj[t_obs:], color='green', label='gt')
-        plt.scatter(x_traj[-1], y_traj[-1], color='green', label='gt end point')
+        #plt.plot(x_traj[:t_obs + 1], y_traj[:t_obs + 1], color='blue', label='observed')
+        #plt.scatter(x_traj[t_obs + 1], y_traj[t_obs + 1], color='blue', label='end observed')
+        #plt.plot(x_traj[t_obs:], y_traj[t_obs:], color='green', label='gt')
+        #plt.scatter(x_traj[-1], y_traj[-1], color='green', label='gt end point')
         if pred:
-            x_traj, y_traj, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta = transform(x_traj, y_traj)
-            pred_x = pred_array[idx][ :, 0]
-            pred_y = pred_array[idx][ :, 1]
-            pred_x, pred_y = rotate(pred_x, pred_y, -theta)
-            pred_x += offsets[0]
-            pred_y += offsets[1]
-            plt.plot(pred_x, pred_y, color='orange', label='predicted')
-            plt.scatter(pred_x[-1], pred_y[-1], color='orange', label='predicted goal point')
-
+            x_traj_, y_traj_, v_x, v_y, psi, psi_dot, psi_traj, psidot_traj, theta = transform(x_traj, y_traj)
+            pred_idx = idx
+            if len(sequences) > 0:
+                seq = int(path.split('/')[-1].split('.')[0])
+                pred_idx = np.where(sequences == seq)[0][0] + 1
+            if pred_idx < len(pred_array):
+                pred_x = pred_array[pred_idx][ :, 0]
+                pred_y = pred_array[pred_idx][ :, 1]
+                pred_x, pred_y = rotate(pred_x, pred_y, -theta)
+                pred_x += offsets[0]
+                pred_y += offsets[1]
+                ade.append(np.linalg.norm(np.dstack((x_traj[20:] + offsets[0], y_traj[20:] + offsets[1])) - np.dstack((pred_x, pred_y))))
+                #plt.plot(pred_x, pred_y, color='orange', label='predicted')
+                #plt.scatter(pred_x[-1], pred_y[-1], color='orange', label='predicted goal point')
+                #plt.plot(x_traj[20:] + offsets[0], y_traj[20:] + offsets[1], color='blue')
+                #plt.show()
+        if idx % 1000 == 0:
+            print("Mean ADE: {}".format(np.mean(ade)))
+        '''
         # av
         x_traj = av_df['X'].values
         y_traj = av_df['Y'].values
@@ -259,7 +270,7 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
         x_max, y_max = np.max(gt_x) + 30, np.max(gt_y) + 30
         x_min, y_min = np.min(gt_x) - 30, np.min(gt_y) - 30
 
-        avm = ArgoverseMap()
+        #avm = ArgoverseMap()
         seq_lane_props = avm.city_lane_centerlines_dict[city]
         for lane_id, lane_props in seq_lane_props.items():
             lane_cl = lane_props.centerline
@@ -273,5 +284,6 @@ def vis_trajectories(data_path, output_dir="results/", dt = 0.3, t_obs=20, pred=
         plt.axis('equal')
         plt.savefig(output_dir + str(idx) + ".png")
         plt.clf()
-
+        '''
+    print(np.mean(ade))
     plt.close()
