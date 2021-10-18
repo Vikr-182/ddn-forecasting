@@ -155,6 +155,4 @@ mean_loss = np.mean(test_loss)
 predictions = predictions[1:]
 print("Epoch Mean Test Loss: {}".format(mean_loss))
 print("Mean Heading Loss: {}".format(np.mean(mean_head_loss)))
-np.save("predictions.npy", predictions)
-
-torch.save(torch.tensor(final_out), 'final.pt')
+np.save("ep_predictions.npy", predictions)
