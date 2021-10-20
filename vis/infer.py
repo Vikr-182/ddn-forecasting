@@ -31,6 +31,8 @@ avm = ArgoverseMap()
 
 num = 10
 
+data_path="/datasets/argoverse/val/data"
+infer_path="../../inn"
 
 
 import os
@@ -81,8 +83,6 @@ def denoise(gt_x, gt_y, w = 7):
 
 from shapely.geometry.polygon import Polygon, Point
 
-data_path="/scratch/forecasting/val/data"
-infer_path="/scratch/forecasting/infer"
 output_dir="../results/"
 t_obs=20
 dt=0.3
@@ -219,8 +219,11 @@ for idx in tqdm(range(len(paths))):
             for i,v in enumerate(points): ww[i] = A @ points[i]
             ww[:, 0] += x_traj[0]
             ww[:, 1] += y_traj[0]
-            agent_polygons.append(Polygon(ww))
-            
+            try:
+                agent_polygons.append(Polygon(ww))
+            except:
+                print("AGENT problem")
+
         for indoo, other in enumerate(others_dfs):
             x_traj = other['X'].values
             y_traj = other['Y'].values
@@ -240,7 +243,7 @@ for idx in tqdm(range(len(paths))):
                 try:
                     others_polyon.append(Polygon(ww))
                 except:
-                    pass
+                    print("OTHERS")
         others_polygons.append(others_polyon)
         
     sample = np.zeros((h, w))
@@ -265,18 +268,21 @@ for idx in tqdm(range(len(paths))):
                     flag = 1
             sample[j,i] = flag
             
-            for k in range((20)):
+            for k in range(20):
                 # get obstacle polygon
                 for l in range(len(others_polygons[k])):
                     if others_polygons[k][l].contains(point_xy):
-                        grids_agent[k, j, i] = 1
+                        grids_obstacles[k, j, i] = 1
                         
                 # get agent polygon
                 if agent_polygons[k].contains(point_xy):
-                    grids_obstacles[k, j, i] = 1
+                    grids_agent[k, j, i] = 1
 
     print("DONE")
 
+    print(grids_agent.shape)
+    for i in range(20): grids_lanes[i] = sample
+    print(str(infer_path) + "/das/{}.npy".format(idx))
     np.save(str(infer_path) + "/das/{}.npy".format(idx), grids_lanes)
     np.save(str(infer_path) + "/agents/{}.npy".format(idx), grids_agent)
     np.save(str(infer_path) + "/others/{}.npy".format(idx), grids_obstacles)

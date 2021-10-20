@@ -399,4 +399,4 @@ if __name__ == "__main__":
             print("Min Loss=",np.min(np.array(train_loss)))
             print("Mean Loss = ", np.mean(np.array(train_loss)))
         '''
-        torch.save(model.state_dict(),'checkpoints/home_home.ckpt')
+        #torch.save(model.state_dict(),'checkpoints/home_home.ckpt')

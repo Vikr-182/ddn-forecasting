@@ -20,8 +20,6 @@ from torch.utils.data import Dataset, DataLoader
 
 import matplotlib.pyplot as plt
 
-from convlstm import ConvLSTMCell
-
 torch.autograd.set_detect_anomaly(True)
 
 def denoise(gt_x, gt_y, w = 7):
@@ -147,20 +145,20 @@ class HOME2(nn.Module):
 class ArgoverseImageDataset(Dataset):
     def __init__(self, data_path):
         self.data_path = data_path
-        self.sequences = [i for i in range(len(glob.glob(data_path + "/*")))]
+        self.sequences = glob.glob(data_path + "/*")
     
     def __len__(self):
         return len(self.sequences)
     
     def __getitem__(self, idx):
-        print(len(self.sequences))
-        arrays = [self.data_path + "/" + str(idx + 170) + "/" + str(j) + ".png" for j in range(20)]
-        images = np.array([ np.asarray(plt.imread(img_path))[:, :, :3]  for img_path in arrays])
+        arrays = glob.glob(self.sequences[idx] + "/*")
+        images = np.array([ np.asarray(Image.open(img_path))[:, :, :3]  for img_path in arrays])
         images = images[:20]
-        #plt.imshow(images[0])
+        if images.shape[1] != 164:
+            print(self.sequences[idx] + "/*")
         data_path="/datasets/argoverse/val/data"
         paths = glob.glob(os.path.join(data_path, "*.csv"))
-        path = paths[idx + 170]
+        path = paths[idx]
         dff = pd.read_csv(path)
     
         city = dff['CITY_NAME'].values[0]    
@@ -171,10 +169,6 @@ class ArgoverseImageDataset(Dataset):
         x_a, y_a = denoise(x_a, y_a)    
 
         pixel_x, pixel_y = 164 * (x_a[49] - x_a[20] + 50)/100, 165 * (y_a[49] - y_a[20] + 50)/100
-        temp = pixel_y
-        pixel_y = pixel_x
-        pixel_x = temp
-        pixel_x = 165 - pixel_x
         
         scaledGaussian = lambda x : exp(-(1/2)*(x**2))
 
@@ -197,8 +191,7 @@ class ArgoverseImageDataset(Dataset):
         x = nn.Softmax(2)(x.view(*x.size()[:2], -1)).view_as(x)
         x = x.view(164, 165)
         isotropicGrayscaleImage = x
-        images = np.concatenate((np.zeros((20, 3, 165, 3)), images), axis=1)
-        return torch.tensor(images.reshape(images.shape[0] * images.shape[3], images.shape[1],images.shape[2]), dtype=torch.float64), isotropicGrayscaleImage, images[0]
+        return torch.tensor(images.reshape(images.shape[0] * images.shape[3], images.shape[1],images.shape[2]), dtype=torch.float64), isotropicGrayscaleImage
 
 class HOME(nn.Module):
     def __init__(self, in_s=(200, 200, 4), out_channels=512,):
@@ -234,141 +227,40 @@ class HOME(nn.Module):
         #    heatmap[i] /= heatmap_norm[i]        
         #for i in range(len(heatmap)):
         x = heatmap
-        temp = 1
-        x = nn.Softmax(2)(x.view(x.shape[0], 1, x.shape[1] * x.shape[2])/temp).view_as(x)
+        x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
+        x = nn.Softmax(2)(x.view(*x.size()[:2], -1)).view_as(x)
         return x.squeeze()
-
-class EnDeWithPooling(nn.Module):
-    def __init__(self, activation, initType, numChannels, batchnorm=False, softmax=True):
-        super(EnDeWithPooling, self).__init__()
-
-        self.batchnorm = batchnorm
-        self.bias = not batchnorm
-        self.initType = initType
-        self.activation = None
-        self.numChannels = numChannels
-        self.softmax = softmax
-
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        else:
-            self.activation = nn.SELU(inplace=True)
-
-        self.conv1 = nn.Conv2d(self.numChannels, 16, 3, 1, 1, bias=self.bias)
-        self.conv2 = nn.Conv2d(16, 32, 3, 1, 1, bias=self.bias)
-        self.conv3 = nn.Conv2d(32, 64, 3, 1, 1, bias=self.bias)
-        self.deconv3 = nn.ConvTranspose2d(64, 32, (4,4), 2, 1, 1)
-        self.deconv2 = nn.ConvTranspose2d(32, 16, 3, 2, 1, 1)
-        self.deconv1 = nn.ConvTranspose2d(16, 8, (3,4), 2, 1, 1)
-        self.classifier = nn.Conv2d(8, 1, 1)
-
-        self.pool = nn.MaxPool2d(2, 2)
-        self.intermediate = nn.Conv2d(64, 64, 1, 1, 0, bias=self.bias)
-        self.skip1 = nn.Conv2d(16, 16, 1, 1, 0, bias=self.bias)
-        self.skip2 = nn.Conv2d(32, 32, 1, 1, 0, bias=self.bias)
-
-        if self.batchnorm:
-            self.bn1 = nn.BatchNorm2d(16)
-            self.bn2 = nn.BatchNorm2d(32)
-            self.bn3 = nn.BatchNorm2d(64)
-            self.bn4 = nn.BatchNorm2d(32)
-            self.bn5 = nn.BatchNorm2d(16)
-            self.bn6 = nn.BatchNorm2d(8)
-
-    def forward(self, x):
-        if self.batchnorm:
-            conv1_ = self.pool(self.bn1(self.activation(self.conv1(x))))
-            conv2_ = self.pool(self.bn2(self.activation(self.conv2(conv1_))))
-            conv3_ = self.pool(self.bn3(self.activation(self.conv3(conv2_))))
-            intermediate_ = self.activation(self.intermediate(conv3_))
-            skip_deconv3_ = self.deconv3(intermediate_) + self.activation(self.skip2(conv2_))
-            deconv3_ = self.bn4(self.activation(skip_deconv3_))
-            skip_deconv2_ = self.deconv2(deconv3_) + self.activation(self.skip1(conv1_))
-            deconv2_ = self.bn5(self.activation(skip_deconv2_))
-            deconv1_ = self.bn6(self.activation(self.deconv1(deconv2_)))
-            score = self.classifier(deconv1_)
-            score = score.squeeze()
-            score = nn.Softmax(1)(score.view(score.shape[0], -1)).view_as(score)            
-        else:
-            conv1_ = self.pool(self.activation(self.conv1(x)))
-            conv2_ = self.pool(self.activation(self.conv2(conv1_)))
-            conv3_ = self.pool(self.activation(self.conv3(conv2_)))
-            intermediate_ = self.activation(self.intermediate(conv3_))
-            skip_deconv3_ = self.deconv3(intermediate_) + self.activation(self.skip2(conv2_))
-            deconv3_ = self.activation(skip_deconv3_)
-            skip_deconv2_ = self.deconv2(deconv3_) + self.activation(self.skip1(conv1_))
-            deconv2_ = self.activation(skip_deconv2_)
-            deconv1_ = self.activation(self.deconv1(deconv2_))
-            if self.softmax:
-                score = self.classifier(deconv1_)
-            else:
-                score = self.classifier(deconv1_)
-        return score
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if self.initType == 'default':
-                    n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                    m.weight.data.normal_(0, np.sqrt(2. / n))
-                elif self.initType == 'xavier':
-                    nn.init.xavier_normal_(m.weight.data)
-
-                if m.bias is not None:
-                    m.bias.data.zero_()
-
-            if isinstance(m, nn.ConvTranspose2d):
-                if self.initType == 'default':
-                    n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                    m.weight.data.normal_(0, np.sqrt(2. / n))
-                elif self.initType == 'xavier':
-                    nn.init.xavier_normal_(m.weight.data)
-
-                if m.bias is not None:
-                    m.bias.data.zero_()
 
 from tqdm import tqdm
 if __name__ == "__main__":
-    full_dataset = ArgoverseImageDataset(data_path="./results")
-    train_size = int(1 * len(full_dataset))
-    test_size = len(full_dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
+    train_dataset = ArgoverseImageDataset(data_path="../results")
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False)
-    #test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
-    test_loader = train_loader
-    #model = EnDeWithPooling('relu','xavier',numChannels=60,batchnorm=True,softmax=True)
     model = HOME(in_s=(1, 60, 164, 165))
     model.double()
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
     criterion = nn.KLDivLoss()
-    #criterion = nn.MSELoss()
     model.load_state_dict(torch.load('checkpoints/home.ckpt'))
+    #criterion = nn.MSELoss()
     for epoch in range(100):
         train_loss = []
-        for ind, data in enumerate(tqdm(test_loader)):
-            inputs, gt, images = data
-            #continue
+        for ind, data in enumerate(tqdm(train_loader)):
+            inputs, gt = data
             # print(gt[0,0].sum())
-            print(inputs.shape)
             out = model(inputs)
             loss = criterion(F.torch.log(out), gt)
             #loss = criterion(out, gt)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step();
             train_loss.append(loss.item())
             print("loss=",loss.item())
-            if ind % 1 == 0:
-                for jj in range(len(images)):
-                    plt.imshow(images[0])
-                    plt.imshow(out[0].detach(), alpha=0.4)
-                    plt.savefig('../intermediate_heatmap_results/{}_predicted.png'.format(170+jj * ind))
-                    plt.clf()
-                    #plt.show()
-                    plt.imshow(images[0])
-                    plt.imshow(gt[0], alpha=0.4)
-                    plt.savefig('../intermediate_heatmap_results/{}_gt.png'.format(170+jj * ind))
-                    plt.clf()
-                    #plt.show()
+            #plt.imshow(gt[0])
+            #plt.show()
             #plt.imshow(out[0].detach(),alpha=0.2)
             #plt.show()
             #print(out.shape, gt.shape)
+        if epoch % 1 == 0:
             print("Min Loss=",np.min(np.array(train_loss)))
             print("Mean Loss = ", np.mean(np.array(train_loss)))
+        
+        torch.save(model.state_dict(),'checkpoints/home.ckpt')
