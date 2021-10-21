@@ -237,7 +237,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False)
     model = HOME(in_s=(1, 60, 164, 165))
     model.double()
-    optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
+    optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
     criterion = nn.KLDivLoss()
     model.load_state_dict(torch.load('checkpoints/home.ckpt'))
     #criterion = nn.MSELoss()
@@ -254,11 +254,13 @@ if __name__ == "__main__":
             optimizer.step();
             train_loss.append(loss.item())
             print("loss=",loss.item())
-            #plt.imshow(gt[0])
-            #plt.show()
-            #plt.imshow(out[0].detach(),alpha=0.2)
-            #plt.show()
-            #print(out.shape, gt.shape)
+            '''
+            plt.imshow(gt[0])
+            plt.show()
+            plt.imshow(out[0].detach(),alpha=0.7)
+            plt.show()
+            print(out.shape, gt.shape)
+            '''
         if epoch % 1 == 0:
             print("Min Loss=",np.min(np.array(train_loss)))
             print("Mean Loss = ", np.mean(np.array(train_loss)))

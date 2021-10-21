@@ -153,7 +153,7 @@ class ArgoverseImageDataset(Dataset):
         return len(self.sequences)
     
     def __getitem__(self, idx):
-        print(len(self.sequences))
+        print(idx)
         arrays = [self.data_path + "/" + str(idx + 170) + "/" + str(j) + ".png" for j in range(20)]
         images = np.array([ np.asarray(plt.imread(img_path))[:, :, :3]  for img_path in arrays])
         images = images[:20]
@@ -198,7 +198,7 @@ class ArgoverseImageDataset(Dataset):
         x = x.view(164, 165)
         isotropicGrayscaleImage = x
         images = np.concatenate((np.zeros((20, 3, 165, 3)), images), axis=1)
-        return torch.tensor(images.reshape(images.shape[0] * images.shape[3], images.shape[1],images.shape[2]), dtype=torch.float64), isotropicGrayscaleImage, images[0]
+        return torch.tensor(images.reshape(images.shape[0] * images.shape[3], images.shape[1],images.shape[2]), dtype=torch.float64), isotropicGrayscaleImage, images[0], torch.tensor(idx)
 
 class HOME(nn.Module):
     def __init__(self, in_s=(200, 200, 4), out_channels=512,):
@@ -234,7 +234,7 @@ class HOME(nn.Module):
         #    heatmap[i] /= heatmap_norm[i]        
         #for i in range(len(heatmap)):
         x = heatmap
-        temp = 1
+        temp = 0.1
         x = nn.Softmax(2)(x.view(x.shape[0], 1, x.shape[1] * x.shape[2])/temp).view_as(x)
         return x.squeeze()
 
@@ -342,11 +342,12 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
     criterion = nn.KLDivLoss()
     #criterion = nn.MSELoss()
-    model.load_state_dict(torch.load('checkpoints/home.ckpt'))
+    model.load_state_dict(torch.load('checkpoints/home_home.ckpt'))
+    #model.load_state_dict(torch.load('checkpoints/home_encdec.ckpt'))
     for epoch in range(100):
         train_loss = []
         for ind, data in enumerate(tqdm(test_loader)):
-            inputs, gt, images = data
+            inputs, gt, images, idxs = data
             #continue
             # print(gt[0,0].sum())
             print(inputs.shape)
@@ -355,16 +356,18 @@ if __name__ == "__main__":
             #loss = criterion(out, gt)
             train_loss.append(loss.item())
             print("loss=",loss.item())
-            if ind % 1 == 0:
+            if True:#False:#ind % 1 == 0:
                 for jj in range(len(images)):
-                    plt.imshow(images[0])
-                    plt.imshow(out[0].detach(), alpha=0.4)
-                    plt.savefig('../intermediate_heatmap_results/{}_predicted.png'.format(170+jj * ind))
+                    plt.imshow(images[jj])
+                    plt.imshow(out[jj].detach(), alpha=0.4)
+                    plt.savefig('../intermediate_heatmap_results/{}_predicted.png'.format(170+idxs[jj]))
+                    np.save('../intermediate_heatmap_results/{}_predicted.npy'.format(170 + idxs[jj]), out[jj].detach().numpy())
                     plt.clf()
                     #plt.show()
-                    plt.imshow(images[0])
-                    plt.imshow(gt[0], alpha=0.4)
-                    plt.savefig('../intermediate_heatmap_results/{}_gt.png'.format(170+jj * ind))
+                    plt.imshow(images[jj])
+                    plt.imshow(gt[jj], alpha=0.4)
+                    plt.savefig('../intermediate_heatmap_results/{}_gt.png'.format(170+idxs[jj]))
+                    np.save('../intermediate_heatmap_results/{}_gt.npy'.format(170 + idxs[jj]), gt[jj].detach().numpy())
                     plt.clf()
                     #plt.show()
             #plt.imshow(out[0].detach(),alpha=0.2)

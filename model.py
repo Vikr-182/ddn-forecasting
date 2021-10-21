@@ -20,9 +20,10 @@ from torch.utils.data import Dataset, DataLoader
 
 import matplotlib.pyplot as plt
 
-#from convlstm import ConvLSTMCell
+from convlstm import ConvLSTMCell
 
 torch.autograd.set_detect_anomaly(True)
+flag = True
 
 def denoise(gt_x, gt_y, w = 7):
     # denoising
@@ -148,13 +149,18 @@ class ArgoverseImageDataset(Dataset):
     def __init__(self, data_path):
         self.data_path = data_path
         self.sequences = [i for i in range(len(glob.glob(data_path + "/*")))]
+        self.sequences = glob.glob(data_path + "/*")
+    
     
     def __len__(self):
         return len(self.sequences)
     
     def __getitem__(self, idx):
-        arrays = [self.data_path + "/" + str(idx) + "/" + str(j) + ".png" for j in range(20)]
-        images = np.array([ np.asarray(plt.imread(img_path))[:, :, :3]  for img_path in arrays])
+        #arrays = [self.data_path + "/" + str(idx) + "/" + str(j) + ".png" for j in range(20)]
+        #arrays = glob.glob(self.data_path + "/" + str(idx) + "/*")
+        arrays = glob.glob(self.sequences[idx] + "/*")
+        images = np.array([ np.asarray(Image.open(img_path))[:, :, :3]  for img_path in arrays])
+        #images = np.array([ np.asarray(plt.imread(img_path))[:, :, :3]  for img_path in arrays])
         images = images[:20]
         #plt.imshow(images[0])
         data_path="/datasets/argoverse/val/data"
@@ -196,6 +202,8 @@ class ArgoverseImageDataset(Dataset):
         x = nn.Softmax(2)(x.view(*x.size()[:2], -1)).view_as(x)
         x = x.view(164, 165)
         isotropicGrayscaleImage = x
+        if flag:
+            np.save("../gt_heatmaps/gt_{}.npy".format(idx), isotropicGrayscaleImage.detach().numpy())
 
         #images = np.concatenate((np.zeros((20, 3, 165, 3)), images), axis=1)
         return torch.tensor(images.reshape(images.shape[0] * images.shape[3], images.shape[1],images.shape[2]), dtype=torch.float64), isotropicGrayscaleImage, images[0]
@@ -233,8 +241,10 @@ class HOME(nn.Module):
         #for i in range(len(heatmap)):
         #    heatmap[i] /= heatmap_norm[i]        
         #for i in range(len(heatmap)):
-        x = heatmap.squeeze()
-        x = nn.Softmax(2)(x.view(x.shape[0], 1, x.shape[1] * x.shape[2])).view_as(x)
+        x = heatmap
+        x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
+        x = nn.Softmax(2)(x.view(*x.size()[:2], -1)).view_as(x)
+        #x = nn.Softmax(2)(x.view(x.shape[0], 1, x.shape[1] * x.shape[2])).view_as(x)
         return x.squeeze()
 
 class EnDeWithPooling(nn.Module):
@@ -287,7 +297,8 @@ class EnDeWithPooling(nn.Module):
             deconv1_ = self.bn6(self.activation(self.deconv1(deconv2_)))
             score = self.classifier(deconv1_)
             score = score.squeeze()
-            score = nn.Softmax(1)(score.view(score.shape[0], -1)).view_as(score)            
+            temp = 1
+            score = nn.Softmax(1)(score.view(score.shape[0], -1)/temp).view_as(score)            
         else:
             conv1_ = self.pool(self.activation(self.conv1(x)))
             conv2_ = self.pool(self.activation(self.conv2(conv1_)))
@@ -326,6 +337,123 @@ class EnDeWithPooling(nn.Module):
                 if m.bias is not None:
                     m.bias.data.zero_()
 
+
+class EnDeConvLSTM(nn.Module):
+    def __init__(self, activation, initType, numChannels, imageHeight, imageWidth, batchnorm=False, softmax=False):
+        super(EnDeConvLSTM, self).__init__()
+
+        self.batchnorm = batchnorm
+        self.bias = not self.batchnorm
+        self.initType = initType
+        self.activation = None
+        self.batchsize = 1
+        self.numChannels = numChannels
+        self.softmax = softmax
+
+        # Encoder
+        self.conv1 = nn.Conv2d(self.numChannels, 16, 3, 1, 1, bias=self.bias)
+        self.conv2 = nn.Conv2d(16, 32, 3, 1, 1, bias=self.bias)
+        self.conv3 = nn.Conv2d(32, 64, 3, 1, 1, bias=self.bias)
+
+        # Decoder
+        self.deconv3 = nn.ConvTranspose2d(64, 32, 3, 2, 1, 1)
+        self.deconv2 = nn.ConvTranspose2d(32, 16, 3, 2, 1, 1)
+        self.deconv1 = nn.ConvTranspose2d(16, 8, 3, 2, 1, 1)
+
+        # LSTM
+        self.convlstm = ConvLSTMCell((int(imageWidth / 8), int(imageHeight / 8)), 64, 64, (3, 3))
+        self.h, self.c = None, None
+
+        # Skip Connections
+        self.skip1 = nn.Conv2d(16, 16, 1, 1, 0, bias=self.bias)
+        self.skip2 = nn.Conv2d(32, 32, 1, 1, 0, bias=self.bias)
+
+        self.pool = nn.MaxPool2d(2, 2)
+        self.classifier = nn.Conv2d(8, 1, 1)
+
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        else:
+            self.activation = nn.SELU(inplace=True)
+
+        if self.batchnorm:
+            self.bn1 = nn.BatchNorm2d(16)
+            self.bn2 = nn.BatchNorm2d(32)
+            self.bn3 = nn.BatchNorm2d(64)
+            self.bn4 = nn.BatchNorm2d(32)
+            self.bn5 = nn.BatchNorm2d(16)
+            self.bn6 = nn.BatchNorm2d(8)
+
+    def forward(self, x, s=None):
+        if s is None:
+            self.h, self.c = self.convlstm.init_hidden(self.batchsize)
+        else:
+            self.h, self.c = s
+
+        if self.batchnorm is True:
+            # Encoder
+            conv1_ = self.pool(self.bn1(self.activation(self.conv1(x))))
+            conv2_ = self.pool(self.bn2(self.activation(self.conv2(conv1_))))
+            conv3_ = self.pool(self.bn3(self.activation(self.conv3(conv2_))))
+
+            # LSTM
+            self.h, self.c = self.convlstm(conv3_, (self.h, self.c))
+
+            # Decoder
+            deconv3_ = self.bn4(self.activation(self.deconv3(self.h)) + self.activation(self.skip2(conv2_)))
+            deconv2_ = self.bn5(self.activation(self.deconv2(deconv3_)) + self.activation(self.skip1(conv1_)))
+            deconv1_ = self.bn6(self.activation(self.deconv1(deconv2_)))
+
+            if self.softmax:
+                score = F.softmax(self.classifier(deconv1_), dim=1)
+            else:
+                score = self.classifier(deconv1_)
+        else:
+            # Encoder
+            conv1_ = self.pool(self.activation(self.conv1(x)))
+            conv2_ = self.pool(self.activation(self.conv2(conv1_)))
+            conv3_ = self.pool(self.activation(self.conv3(conv2_)))
+
+            # LSTM
+            self.h, self.c = self.convlstm(conv3_, (self.h, self.c))
+
+            # Decoder
+            deconv3_ = self.activation(self.deconv3(self.h)) + self.activation(self.skip2(conv2_))
+            deconv2_ = self.activation(self.deconv2(deconv3_)) + self.activation(self.skip1(conv1_))
+            deconv1_ = self.activation(self.deconv1(deconv2_))
+            if self.softmax:
+                score = F.softmax(self.classifier(deconv1_), dim=1)
+            else:
+                score = self.classifier(deconv1_)
+
+        return score
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if self.initType == 'default':
+                    n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                    m.weight.data.normal_(0, np.sqrt(2. / n))
+                elif self.initType == 'xavier':
+                    nn.init.xavier_normal_(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            if isinstance(m, nn.ConvTranspose2d):
+                if self.initType == 'default':
+                    n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                    m.weight.data.normal_(0, np.sqrt(2. / n))
+                elif self.initType == 'xavier':
+                    nn.init.xavier_normal_(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            if isinstance(m, ConvLSTMCell):
+                n = m.conv.kernel_size[0] * m.conv.kernel_size[1] * m.conv.out_channels
+                m.conv.weight.data.normal_(0, np.sqrt(2. / n))
+                if m.conv.bias is not None:
+                    m.conv.bias.data.zero_()
+
+
+
 from tqdm import tqdm
 if __name__ == "__main__":
     full_dataset = ArgoverseImageDataset(data_path="../results")
@@ -335,8 +463,8 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False)
     #test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
 
-    #model = EnDeWithPooling('relu','xavier',numChannels=60,batchnorm=True,softmax=True)
-    model = HOME(in_s=(1, 60, 164, 165))
+    model = EnDeWithPooling('relu','xavier',numChannels=60,batchnorm=True,softmax=True)
+    #model = HOME(in_s=(1, 60, 164, 165))
     model.double()
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
     criterion = nn.KLDivLoss()
@@ -355,7 +483,7 @@ if __name__ == "__main__":
             optimizer.step();
             train_loss.append(loss.item())
             print("loss=",loss.item())
-            if False:
+            if epoch % 2 == 0 and ind % 10 == 0:
                 for jj in range(len(images)):
                     plt.imshow(images[0])
                     plt.imshow(out[0].detach(), alpha=0.4)
@@ -368,6 +496,7 @@ if __name__ == "__main__":
             #print(out.shape, gt.shape)
         print("Min Loss=",np.min(np.array(train_loss)))
         print("Mean Loss = ", np.mean(np.array(train_loss)))
+        flag = False
         if epoch % 2 != 0:
             continue
         '''
@@ -399,4 +528,4 @@ if __name__ == "__main__":
             print("Min Loss=",np.min(np.array(train_loss)))
             print("Mean Loss = ", np.mean(np.array(train_loss)))
         '''
-        #torch.save(model.state_dict(),'checkpoints/home_home.ckpt')
+        torch.save(model.state_dict(),'checkpoints/home_encdec.ckpt')
