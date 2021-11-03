@@ -6,3 +6,9 @@ checkpoints/
 results/
 results/*
 ddn/*
+carla_with_centerline_new/
+carla_with_centerline_new/*
+data/
+data/*
+debug/
+debug/*
