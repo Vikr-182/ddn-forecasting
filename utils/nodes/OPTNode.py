@@ -16,12 +16,6 @@ from scipy.linalg import block_diag
 from torch.utils.data import Dataset, DataLoader
 from ddn.ddn.pytorch.node import AbstractDeclarativeNode
 
-from argoverse.map_representation.map_api import ArgoverseMap
-from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
-from argoverse.visualization.visualize_sequences import viz_sequence
-
-avm = ArgoverseMap()
-
 class OPTNode(AbstractDeclarativeNode):
     def __init__(self, rho_eq=1.0, rho_goal=1.0, rho_nonhol=1.0, rho_psi=1.0, maxiter=5000, weight_smoothness=1.0, weight_smoothness_psi=1.0, t_fin=2.0, num=30, bernstein_coeff_order10_new=None, device="cpu"):
         super().__init__()

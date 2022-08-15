@@ -91,7 +91,7 @@ for epoch in range(args.end_epoch):
 
         ade = []
         fde = []
-        head_loss = []        
+        head_loss = []
 #         out = model(traj_inp.float(), fixed_params.float(), var_inp.float())
         out = model(traj_inp, fixed_params, var_inp)
         loss = criterion(out, traj_out)

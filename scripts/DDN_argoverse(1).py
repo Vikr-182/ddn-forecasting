@@ -95,7 +95,7 @@ for i in range(num_obs):
     
 A_obs = np.tile(P, (num_obs, 1))
 A_eq = np.vstack((P[0], Pdot[0], Pddot[0], P[-1], Pdot[-1], Pddot[-1]))
-Q_smoothness = np.dot(Pddot.T, Pddot)  
+Q_smoothness = np.dot(Pddot.T, Pddot) 
 
 cities = np.load("/datasets/argoverse/val_cities.npy")
 offsets_train = np.load("/datasets/argoverse/val_offsets.npy")
