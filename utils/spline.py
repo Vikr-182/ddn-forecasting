@@ -144,11 +144,14 @@ class Spline2D:
         x_start = np.arange(x[0] - extension, x[0], 0.5)
         x_end = np.arange(x[-1], x[-1] + extension, 0.5)
         
-        y_start = y[0] - np.tan(angle_start) * np.arange(- extension, 0, 0.5)
+        y_start = y[0] + np.tan(angle_start) * np.arange(- extension, 0, 0.5)
         y_end = y[-1] + np.tan(angle_end) * np.arange(0, 0 + extension, 0.5)
         
         x = np.concatenate((x_start, x.reshape(x.shape[0]), x_end))
         y = np.concatenate((y_start, y.reshape(y.shape[0]), y_end))
+        
+        self.splinex = x
+        self.spliney = y
         
         if debug:
             import matplotlib.pyplot as plt
