@@ -24,82 +24,27 @@ def torch_log(x):
 	return torch.log(torch.clamp(x, min = 1e-10))
 
 # Encoder
-class Encoder(nn.Module):
-	def __init__(self, inp_dim, out_dim, hidden_dim, z_dim):
-		super(Encoder, self).__init__()
-				
-		# Encoder Architecture
-		self.encoder = nn.Sequential(
-			nn.Linear(inp_dim + out_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(), 
-			
-			nn.Linear(hidden_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, 256),
-			nn.BatchNorm1d(256),
-			nn.ReLU()
-		)
-		
-		# Mean and Variance
-		self.mu = nn.Linear(256, z_dim)
-		self.var = nn.Linear(256, z_dim)
-		
-		self.softplus = nn.Softplus()
-		
+class EncoderGRU(nn.Module):
+	def __init__(self, inp_dim, out_dim, hidden_dim, z_dim, num_layers=1, batch_size=32):
+		super(EncoderGRU, self).__init__()	
+		self.hidden_dim = hidden_dim;self.num_layers = num_layers;self.gru = nn.GRU(input_size=inp_dim + out_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True);self.bn = nn.BatchNorm1d(num_features=hidden_dim);self.dropout = nn.Dropout(p=0.25);self.linear1 = nn.Linear(hidden_dim, 256);self.linear2 = nn.Linear(hidden_dim, out_dim);self.activation = nn.ReLU();self.mu = nn.Linear(256, z_dim);self.var = nn.Linear(256, z_dim);self.softplus = nn.Softplus();self.batch_size = batch_size
+
 	def forward(self, x):
-		out = self.encoder(x)
-		mu = self.mu(out)
-		var = self.var(out)
+		h0 = torch.zeros((self.num_layers, self.batch_size, self.hidden_dim), device=device, requires_grad=True);out, hn = self.gru(x.view(self.batch_size, 1, -1), (h0));out = self.activation(self.linear1(self.bn(hn[0])));out = self.dropout(out);mu = self.mu(out);var = self.var(out)        
 		return mu, self.softplus(var)
 	
 # Decoder
-class Decoder(nn.Module):
-	def __init__(self, inp_dim, out_dim, hidden_dim, z_dim):
-		super(Decoder, self).__init__()
-		
-		# Decoder Architecture
-		self.decoder = nn.Sequential(
-			nn.Linear(z_dim + inp_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, hidden_dim),
-			nn.BatchNorm1d(hidden_dim),
-			nn.ReLU(),
-			
-			nn.Linear(hidden_dim, 256),
-			nn.BatchNorm1d(256),
-			nn.ReLU(),
-			
-			nn.Linear(256, out_dim),
-		)
-	
+class DecoderGRU(nn.Module):
+	def __init__(self, inp_dim, out_dim, hidden_dim, z_dim, num_layers=1,batch_size=16):
+		super(DecoderGRU, self).__init__()	
+		self.hidden_dim = hidden_dim;self.num_layers = num_layers;self.gru = nn.GRU(input_size=inp_dim + out_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True);self.bn = nn.BatchNorm1d(num_features=hidden_dim);self.dropout = nn.Dropout(p=0.25);self.linear1 = nn.Linear(hidden_dim, hidden_dim);self.linear2 = nn.Linear(hidden_dim, out_dim);self.activation = nn.ReLU();self.batch_size = batch_size
 	def forward(self, x):
-		out = self.decoder(x)
+		batch_size = x.shape[0];h0 = torch.zeros((self.num_layers, self.batch_size, self.hidden_dim), device=device, requires_grad=True);print(x.view(self.batch_size, 1, -1).shape, h0.shape, "OKOK");out, hn = self.gru(x.view(self.batch_size, 1, -1), (h0));out = self.activation(self.linear1(self.bn(hn[0])));out = self.dropout(out);out = self.linear2(out);self.activation = nn.ReLU()
 		return out
 
-class Beta_cVAE(nn.Module):
+class GRU_cVAE(nn.Module):
 	def __init__(self, encoder, decoder, opt_layer, inp_mean, inp_std):
-		super(Beta_cVAE, self).__init__()
+		super(GRU_cVAE, self).__init__()
 		
 		# Encoder & Decoder
 		self.encoder = encoder
@@ -143,7 +88,7 @@ class Beta_cVAE(nn.Module):
 
 	# Decoder: P_theta(y | z, x) -> y* (init state, y)
 	def _decoder(self, z, x, init_state_ego, y_ub, y_lb):
-		inputs = torch.cat([z, x], dim = 1);
+		inputs = torch.cat([z, x], dim = 1);print(inputs.shape)
 		y = self.decoder(inputs)
 
 		# Signore Hack
@@ -177,7 +122,7 @@ class Beta_cVAE(nn.Module):
 		mean, std = self._encoder(inp_norm, traj_gt)
 				
 		# Sample from z -> Reparameterized 
-		z = self._sample_z(mean, std);print(z.shape, "BHUVANIDAS")
+		z = self._sample_z(mean, std);print(z.shape)
 		
 		# Decode y
 		y_star = self._decoder(z, inp_norm, init_state_ego, y_ub, y_lb)

@@ -17,7 +17,7 @@ torch.cuda.manual_seed(42)
 torch.set_default_dtype(torch.float64)
 
 # GPU Device
-device = "cpu" #torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Prevents NaN by torch.log(0)
 def torch_log(x):
@@ -133,7 +133,7 @@ class Beta_cVAE(nn.Module):
 	# Encoder: P_phi(z | x, y)
 	def _encoder(self, x, y):
 		inputs = torch.cat([x, y], dim = 1)
-		mean, std = self.encoder(inputs)
+		mean, std = self.encoder(inputs)        
 		return mean, std
 
 	# Reparametrization Trick
@@ -143,7 +143,7 @@ class Beta_cVAE(nn.Module):
 
 	# Decoder: P_theta(y | z, x) -> y* (init state, y)
 	def _decoder(self, z, x, init_state_ego, y_ub, y_lb):
-		inputs = torch.cat([z, x], dim = 1);
+		inputs = torch.cat([z, x], dim = 1)
 		y = self.decoder(inputs)
 
 		# Signore Hack
@@ -159,6 +159,74 @@ class Beta_cVAE(nn.Module):
 		weight = torch.hstack([torch.arange(1, 101, 1, device=device).flip(0), torch.ones(100, device=device)])
 		wmse = (weight * (pred - target) ** 2).mean()
 		return 0.5 * wmse
+
+	# Augmented Cost
+	def compute_aug_cost(self, inp, y_star, traj_sol, Pdot, Pddot, y_ub, y_lb, a_obs=5.8, b_obs=3.2):
+		
+		num_batch = y_star.shape[0]
+
+		# Obstacle coordinates & Velocity 
+		x_obs = inp[:, 5::5]
+		y_obs = inp[:, 6::5]
+		vx_obs = inp[:, 7::5]
+		vy_obs = inp[:, 8::5]
+
+		# Coefficient Predictions        
+		cx = y_star[:, 0:self.nvar]
+		cy = y_star[:, self.nvar:2*self.nvar]
+
+		# Trajectories               
+		x = traj_sol[:, 0:self.num] # torch.mm(P_pol, cx.T).T  
+		y = traj_sol[:, self.num:2*self.num]  # torch.mm(P_pol, cy.T).T  
+
+		xdot = torch.mm(Pdot, cx.T).T 
+		ydot = torch.mm(Pdot, cy.T).T  
+
+		xddot = torch.mm(Pddot, cx.T).T   
+		yddot = torch.mm(Pddot, cy.T).T 
+
+		# Batch Obstacle Trajectory Prediction
+		x_obs_inp_trans = x_obs.reshape(num_batch, 1, self.num_obs)
+		y_obs_inp_trans = y_obs.reshape(num_batch, 1, self.num_obs)
+
+		vx_obs_inp_trans = vx_obs.reshape(num_batch, 1, self.num_obs)
+		vy_obs_inp_trans = vy_obs.reshape(num_batch, 1, self.num_obs)
+
+		x_obs_traj = x_obs_inp_trans + vx_obs_inp_trans * self.tot_time.unsqueeze(1)
+		y_obs_traj = y_obs_inp_trans + vy_obs_inp_trans * self.tot_time.unsqueeze(1)
+
+		x_obs_traj = x_obs_traj.permute(0, 2, 1)
+		y_obs_traj = y_obs_traj.permute(0, 2, 1)
+
+		x_obs_traj = x_obs_traj.reshape(num_batch, self.num_obs * self.num)
+		y_obs_traj = y_obs_traj.reshape(num_batch, self.num_obs * self.num)
+
+		x_extend = torch.tile(x, (1, self.num_obs))
+		y_extend = torch.tile(y, (1, self.num_obs))
+
+		wc_alpha = (x_extend - x_obs_traj)
+		ws_alpha = (y_extend - y_obs_traj)
+		dist_obs = - wc_alpha ** 2 / (a_obs ** 2) - ws_alpha ** 2 / (b_obs ** 2) + 1
+
+		## Obstacle Penalty
+		cost_obs_penalty = torch.sum(torch.maximum(torch.zeros((num_batch, self.num * self.num_obs), device=device), dist_obs), dim = 1) # 0.5 * torch.linalg.norm(torch.maximum(torch.zeros((num_batch, self.num * self.num_obs), device=device), dist_obs), dim = 1) ** 2
+		
+		# Steering Penalty
+		curvature = (yddot * xdot - xddot * ydot) / ((xdot**2 + ydot**2) ** 1.5)
+		steering = torch.arctan(curvature * self.wheel_base)
+		steering_penalty = torch.sum(torch.maximum(torch.zeros((num_batch, self.num), device=device), torch.abs(steering) - self.steer_max), dim = 1)
+
+		# Lane Penalty
+		cost_y_penalty_ub = 2 * torch.sum(torch.maximum(torch.zeros((num_batch, self.num), device=device), y - y_ub.unsqueeze(1)), dim=1)
+		cost_y_penalty_lb = 2 * torch.sum(torch.maximum(torch.zeros((num_batch, self.num), device=device), -y + y_lb.unsqueeze(1)), dim=1) 
+
+		# V Desired Penalty
+		temp_vx = torch.linalg.norm(xddot - self.k_p_v * (xdot - self.v_des), dim=1)
+
+		# Total cost batch 
+		cost_batch = torch.mean(cost_obs_penalty + steering_penalty + cost_y_penalty_ub + cost_y_penalty_lb + 0.001 * temp_vx) 
+		
+		return 0.5 * cost_batch
 
 	# Forward Pass
 	def forward(self, inp, traj_gt, init_state_ego, P, Pdot, Pddot, beta = 1.0, step = 0):
@@ -177,7 +245,7 @@ class Beta_cVAE(nn.Module):
 		mean, std = self._encoder(inp_norm, traj_gt)
 				
 		# Sample from z -> Reparameterized 
-		z = self._sample_z(mean, std);print(z.shape, "BHUVANIDAS")
+		z = self._sample_z(mean, std)
 		
 		# Decode y
 		y_star = self._decoder(z, inp_norm, init_state_ego, y_ub, y_lb)
@@ -208,20 +276,20 @@ class BatchOpt_DDN(LinEqConstDeclarativeNode):
 		self.Pddot = Pddot.to(device)
 
 		# Bernstein P
-		self.P1 = self.P[0:15, :]
-		self.P2 = self.P[15:30, :]
-		self.P3 = self.P[30:45, :]
-		self.P4 = self.P[45:60, :]
+		self.P1 = self.P[0:25, :]
+		self.P2 = self.P[25:50, :]
+		self.P3 = self.P[50:75, :]
+		self.P4 = self.P[75:100, :]
 
-		self.Pdot1 = self.Pdot[0:15, :]
-		self.Pdot2 = self.Pdot[15:30, :]
-		self.Pdot3 = self.Pdot[30:45, :]
-		self.Pdot4 = self.Pdot[45:60, :]
+		self.Pdot1 = self.Pdot[0:25, :]
+		self.Pdot2 = self.Pdot[25:50, :]
+		self.Pdot3 = self.Pdot[50:75, :]
+		self.Pdot4 = self.Pdot[75:100, :]
 			
-		self.Pddot1 = self.Pddot[0:15, :]
-		self.Pddot2 = self.Pddot[15:30, :]
-		self.Pddot3 = self.Pddot[30:45, :]
-		self.Pddot4 = self.Pddot[45:60, :]
+		self.Pddot1 = self.Pddot[0:25, :]
+		self.Pddot2 = self.Pddot[25:50, :]
+		self.Pddot3 = self.Pddot[50:75, :]
+		self.Pddot4 = self.Pddot[75:100, :]
   
 		# K constants
 		self.k_p = torch.tensor(20.0, device=device)
@@ -243,10 +311,10 @@ class BatchOpt_DDN(LinEqConstDeclarativeNode):
 		self.b_obs = 3.2
 		self.heading_max = torch.tensor(20 * np.pi/180, device=device)
 		self.nvar = P.shape[1]
-		self.num_partial = 15
+		self.num_partial = 25
 		self.rho_v = 1.0
 		self.rho_offset = 1.0
-		self.num = 60
+		self.num = 100
 		t_fin = 15
 		self.tot_time = torch.linspace(0, t_fin, self.num, device=device)
   
