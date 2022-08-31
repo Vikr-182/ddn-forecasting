@@ -177,7 +177,7 @@ class Beta_cVAE(nn.Module):
 		mean, std = self._encoder(inp_norm, traj_gt)
 				
 		# Sample from z -> Reparameterized 
-		z = self._sample_z(mean, std);print(z.shape, "BHUVANIDAS")
+		z = self._sample_z(mean, std);
 		
 		# Decode y
 		y_star = self._decoder(z, inp_norm, init_state_ego, y_ub, y_lb)
